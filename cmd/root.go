@@ -17,6 +17,7 @@ import (
 	"github.com/skevetter/devpod/cmd/pro"
 	"github.com/skevetter/devpod/cmd/provider"
 	"github.com/skevetter/devpod/cmd/use"
+	"github.com/skevetter/devpod/cmd/web"
 	"github.com/skevetter/devpod/pkg/client/clientimplementation"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/telemetry"
@@ -140,6 +141,7 @@ func BuildRoot() *cobra.Command {
 	rootCmd.AddCommand(NewUpgradeCmd())
 	rootCmd.AddCommand(NewTroubleshootCmd(globalFlags))
 	rootCmd.AddCommand(NewPingCmd(globalFlags))
+	rootCmd.AddCommand(web.NewWebCmd(globalFlags))
 
 	inheritCommandFlagsFromEnvironment(rootCmd)
 

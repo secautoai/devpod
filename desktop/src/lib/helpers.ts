@@ -1,6 +1,8 @@
 import { TIDE, TLogOutput, TProInstance, TProvider } from "@/types"
-import { ChildProcess } from "@tauri-apps/plugin-shell"
 import { Err, Failed, Return } from "./result"
+
+// Structural type compatible with both Tauri's ChildProcess<string> and the web ChildProcessResult
+type ProcessResult = Readonly<{ stdout: string; stderr: string; code: number | null }>
 import { TActionObj } from "@/contexts"
 import { WORKSPACE_SOURCE_BRANCH_DELIMITER, WORKSPACE_SOURCE_COMMIT_DELIMITER } from "@/constants"
 import { TWorkspace, TIDEs } from "@/types"
@@ -41,7 +43,7 @@ export function safeJSONParse<T>(arg: string): T | null {
   }
 }
 
-export function getErrorFromChildProcess(result: ChildProcess<string>): Err<Failed> {
+export function getErrorFromChildProcess(result: ProcessResult): Err<Failed> {
   const stdout = parseOutput(result.stdout)
   const stderr = parseOutput(result.stderr)
   const sorted = [...stdout, ...stderr].sort((a, b) => {

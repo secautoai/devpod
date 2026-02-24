@@ -14,6 +14,7 @@ import * as updater from "@tauri-apps/plugin-updater"
 import { TSettings } from "@/contexts"
 import { Release } from "@/gen"
 import { Result, Return, hasCapability, isError, noop } from "@/lib"
+import { IS_TAURI, WEB_SERVER_URL } from "@/lib/platform"
 import { TCommunityContributions, TProInstance, TUnsubscribeFn } from "@/types"
 import { Command as DevPodCommand } from "./command"
 import { ContextClient } from "./context"
@@ -124,6 +125,7 @@ class Client {
   }
 
   public ready(): Promise<void> {
+    if (!IS_TAURI) return Promise.resolve()
     return invoke("ui_ready")
   }
 
@@ -131,6 +133,11 @@ class Client {
     channel: T,
     listener: TClientEventListener<T>
   ): Promise<TUnsubscribeFn> {
+    if (!IS_TAURI) {
+      // In web mode there is no native event bus from the backend.
+      // Return a no-op unsubscribe function.
+      return noop
+    }
     // `TClient` is strictly typed so we're fine casting the response as `any`.
     try {
       const unsubscribe = await event.listen<any>(channel, (event) => {
@@ -146,26 +153,51 @@ class Client {
   // emitEvent publishes to a given channel and invokes the corresponding handler.
   // This is only intended to be used for debugging right now.
   public emitEvent<T extends TChannelName>(e: TChannels[T]) {
+    if (!IS_TAURI) return
     event.emit("event", e)
   }
 
   public fetchPlatform(): TPlatform {
+    if (!IS_TAURI) {
+      // Detect from user-agent or return a sensible default
+      const ua = navigator.userAgent.toLowerCase()
+      if (ua.includes("win")) return "windows" as TPlatform
+      if (ua.includes("mac")) return "macos" as TPlatform
+      return "linux" as TPlatform
+    }
     return os.platform()
   }
 
   public pathSeparator(): string {
+    if (!IS_TAURI) return "/"
     return path.sep()
   }
 
   public fetchArch(): TArch {
+    if (!IS_TAURI) {
+      // Best-effort detection from user-agent
+      const ua = navigator.userAgent.toLowerCase()
+      if (ua.includes("arm") || ua.includes("aarch64")) return "aarch64" as TArch
+      return "x86_64" as TArch
+    }
     return os.arch()
   }
 
   public fetchVersion(): Promise<string> {
+    if (!IS_TAURI) {
+      return fetch(WEB_SERVER_URL + "/api/version")
+        .then((r) => r.json())
+        .then((j) => j.version ?? "dev")
+        .catch(() => "dev")
+    }
     return app.getVersion()
   }
 
   public async fetchCommunityContributions(): Promise<Result<TCommunityContributions>> {
+    if (!IS_TAURI) {
+      // Not available in web mode – return empty contributions
+      return Return.Value({ providers: [], ides: [] } as unknown as TCommunityContributions)
+    }
     try {
       const contributions = await invoke<TCommunityContributions>("get_contributions")
 
@@ -186,9 +218,10 @@ class Client {
 
   public async fetchReleases(): Promise<Result<readonly Release[]>> {
     try {
+      const serverUrl = IS_TAURI ? TAURI_SERVER_URL : WEB_SERVER_URL
       // WARN: This is a workaround for a memory leak in tauri, see https://github.com/tauri-apps/tauri/issues/4026 for more details.
       // tl;dr tauri doesn't release the memory in it's invoke api properly which is specially noticeable with larger payload, like the releases.
-      const res = await fetch(TAURI_SERVER_URL + "/releases")
+      const res = await fetch(serverUrl + "/releases")
       if (!res.ok) {
         return Return.Failed(`Fetch releases: ${res.statusText}`)
       }
@@ -213,6 +246,19 @@ class Client {
   public async getDir(
     dir: Extract<keyof typeof fs.BaseDirectory, "AppData" | "AppLog" | "Home"> | "SSH"
   ): Promise<string> {
+    if (!IS_TAURI) {
+      // Return reasonable placeholder paths in web mode
+      switch (dir) {
+        case "AppData":
+          return "~/.devpod"
+        case "AppLog":
+          return "~/.devpod/logs"
+        case "Home":
+          return "~"
+        case "SSH":
+          return "~/.ssh"
+      }
+    }
     switch (dir) {
       case "AppData": {
         return path.appDataDir()
@@ -232,6 +278,7 @@ class Client {
   public async openDir(
     dir: Extract<keyof typeof fs.BaseDirectory, "AppData" | "AppLog">
   ): Promise<void> {
+    if (!IS_TAURI) return // Not applicable in web mode
     try {
       let p = await this.getDir(dir)
       if (dir === "AppLog") {
@@ -245,10 +292,12 @@ class Client {
   }
 
   public async selectFromDir(title?: string): Promise<string | null> {
+    if (!IS_TAURI) return null // Browser file system access not supported
     return dialog.open({ title, directory: true, multiple: false })
   }
 
   public async selectFileYaml(): Promise<string | string[] | null> {
+    if (!IS_TAURI) return null
     return dialog.open({
       filters: [{ name: "yaml", extensions: ["yml", "yaml"] }],
       directory: false,
@@ -257,34 +306,45 @@ class Client {
   }
 
   public async selectFile(defaultPath?: string): Promise<string | string[] | null> {
+    if (!IS_TAURI) return null
     return dialog.open({ directory: false, multiple: false, defaultPath })
   }
 
   public async copyFile(src: string, dest: string): Promise<void> {
+    if (!IS_TAURI) return
     return fs.copyFile(src, dest)
   }
 
   public async copyFilePaths(src: string[], dest: string[]) {
+    if (!IS_TAURI) return
     return this.copyFile(await path.join(...src), await path.join(...dest))
   }
 
   public async writeTextFile(targetPath: string[], data: string) {
+    if (!IS_TAURI) return
     return fs.writeTextFile(await path.join(...targetPath), data)
   }
 
   public async readFile(targetPath: string[]) {
+    if (!IS_TAURI) return new Uint8Array()
     return fs.readFile(await path.join(...targetPath))
   }
 
   public async readTextFile(targetPath: string[]) {
+    if (!IS_TAURI) return ""
     return fs.readTextFile(await path.join(...targetPath))
   }
 
   public async writeFile(targetPath: string[], data: Uint8Array) {
+    if (!IS_TAURI) return
     return fs.writeFile(await path.join(...targetPath), data)
   }
 
   public async installCLI(force: boolean = false): Promise<Result<void>> {
+    if (!IS_TAURI) {
+      // In web mode the CLI is already running (it started the web server).
+      return Return.Ok()
+    }
     try {
       await invoke("install_cli", { force })
 
@@ -303,10 +363,15 @@ class Client {
   }
 
   public async getEnv(name: string): Promise<boolean> {
+    if (!IS_TAURI) return false
     return invoke<boolean>("get_env", { name })
   }
 
   public async isCLIInstalled(): Promise<Result<boolean>> {
+    if (!IS_TAURI) {
+      // In web mode the devpod binary IS the running process; the CLI is always available.
+      return Return.Value(true)
+    }
     try {
       // we're in a flatpak, we need to check in other paths.
       const isFlatpak = await this.getEnv("FLATPAK_ID")
@@ -333,10 +398,18 @@ class Client {
   }
 
   public open(link: string): void {
+    if (!IS_TAURI) {
+      window.open(link, "_blank", "noopener,noreferrer")
+      return
+    }
     shell.open(link)
   }
 
   public async quit(): Promise<Result<void>> {
+    if (!IS_TAURI) {
+      window.close()
+      return Return.Ok()
+    }
     try {
       await process.exit(0)
 
@@ -347,6 +420,14 @@ class Client {
   }
 
   public async writeToClipboard(data: string): Promise<Result<void>> {
+    if (!IS_TAURI) {
+      try {
+        await navigator.clipboard.writeText(data)
+        return Return.Ok()
+      } catch (e) {
+        return Return.Failed(`Unable to write to clipboard: ${e}`)
+      }
+    }
     try {
       await clipboard.writeText(data)
 
@@ -357,6 +438,7 @@ class Client {
   }
 
   public async checkUpdates(): Promise<Result<boolean>> {
+    if (!IS_TAURI) return Return.Value(false)
     try {
       const isOk = await invoke<boolean>("check_updates")
 
@@ -367,6 +449,7 @@ class Client {
   }
 
   public async fetchPendingUpdate(): Promise<Result<Release>> {
+    if (!IS_TAURI) return Return.Failed("Updates not available in web mode")
     try {
       const release = await invoke<Release>("get_pending_update")
 
@@ -377,6 +460,7 @@ class Client {
   }
 
   public async installUpdate(): Promise<Result<void>> {
+    if (!IS_TAURI) return Return.Ok()
     try {
       const update = await updater.check()
       if (!update) {
@@ -392,17 +476,36 @@ class Client {
   }
 
   public async restart(): Promise<void> {
+    if (!IS_TAURI) {
+      window.location.reload()
+      return
+    }
     await process.relaunch()
   }
+
   public async closeCurrentWindow(): Promise<void> {
+    if (!IS_TAURI) {
+      window.close()
+      return
+    }
     await getCurrentWindow().close()
   }
 
   public async getSystemTheme(): Promise<TauriTheme | null> {
+    if (!IS_TAURI) {
+      // Detect from browser
+      const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches
+      return prefersDark ? "dark" : "light"
+    }
     return getCurrentWindow().theme()
   }
 
   public log(level: "debug" | "info" | "warn" | "error", message: string) {
+    if (!IS_TAURI) {
+      // eslint-disable-next-line no-console
+      console[level](message)
+      return
+    }
     const logFn = log[level]
     logFn(message)
   }

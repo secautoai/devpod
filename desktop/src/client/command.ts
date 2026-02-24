@@ -5,6 +5,7 @@ import {
   Command as ShellCommand,
 } from "@tauri-apps/plugin-shell"
 import { debug, ErrorTypeCancelled, isError, Result, ResultError, Return, sleep } from "@/lib"
+import { IS_TAURI, WEB_SERVER_URL } from "@/lib/platform"
 import {
   DEVPOD_BINARY,
   DEVPOD_FLAG_OPTION,
@@ -14,6 +15,7 @@ import {
 import { TStreamEvent } from "./types"
 import { TAURI_SERVER_URL } from "./tauriClient"
 import { invoke } from "@tauri-apps/api/core"
+import { WebCommand } from "./webClient/command"
 
 export type TStreamEventListenerFn = (event: TStreamEvent) => void
 export type TEventListener<TEventName extends string> = Parameters<
@@ -34,13 +36,19 @@ export type TCommand<T> = {
   cancel(): Promise<ResultError>
 }
 
-export class Command implements TCommand<ChildProcess<string>> {
-  private sidecarCommand: ShellCommand<string>
+// Shared type for command results - ChildProcess in Tauri mode, compatible struct in web mode
+export type TCommandResult = ChildProcess<string> | { stdout: string; stderr: string; code: number }
+
+export class Command implements TCommand<TCommandResult> {
+  private sidecarCommand!: ShellCommand<string>
   private childProcess?: Child
   private args: string[]
   private cancelled = false
   private isFlatpak: boolean | undefined
   private extraEnvVars: Record<string, string>
+
+  // Web-mode delegate
+  private webCommand: WebCommand | null = null
 
   public static ADDITIONAL_ENV_VARS: string = ""
   public static HTTP_PROXY: string = ""
@@ -49,6 +57,7 @@ export class Command implements TCommand<ChildProcess<string>> {
 
   constructor(args: string[]) {
     debug("commands", "Creating Devpod command with args: ", args)
+    this.args = args
     this.extraEnvVars = Command.ADDITIONAL_ENV_VARS.split(",")
       .map((envVarStr) => envVarStr.split("="))
       .reduce(
@@ -76,15 +85,29 @@ export class Command implements TCommand<ChildProcess<string>> {
 
     // allows the CLI to detect if commands have been invoked from the UI
     this.extraEnvVars[DEVPOD_UI_ENV_VAR] = "true"
-    this.sidecarCommand = ShellCommand.sidecar(DEVPOD_BINARY, args, { env: this.extraEnvVars })
-    this.args = args
+
+    if (IS_TAURI) {
+      this.sidecarCommand = ShellCommand.sidecar(DEVPOD_BINARY, args, { env: this.extraEnvVars })
+    } else {
+      // Sync static flags to WebCommand
+      WebCommand.ADDITIONAL_ENV_VARS = Command.ADDITIONAL_ENV_VARS
+      WebCommand.HTTP_PROXY = Command.HTTP_PROXY
+      WebCommand.HTTPS_PROXY = Command.HTTPS_PROXY
+      WebCommand.NO_PROXY = Command.NO_PROXY
+      this.webCommand = new WebCommand(args)
+    }
   }
 
   public async getEnv(name: string): Promise<boolean> {
+    if (!IS_TAURI) return false
     return invoke<boolean>("get_env", { name })
   }
 
-  public async run(): Promise<Result<ChildProcess<string>>> {
+  public async run(): Promise<Result<TCommandResult>> {
+    if (!IS_TAURI && this.webCommand) {
+      return this.webCommand.run()
+    }
+
     try {
       // Run once to check with the rust backend if we are running inside the flatpak sandbox
       // This informs the CLI wrapper to use flatpak-spawn to escape the sandbox and export this.extraEnvVars
@@ -111,6 +134,10 @@ export class Command implements TCommand<ChildProcess<string>> {
     listener: TStreamEventListenerFn,
     streamOptions?: TStreamOptions
   ): Promise<ResultError> {
+    if (!IS_TAURI && this.webCommand) {
+      return this.webCommand.stream(listener)
+    }
+
     let opts = defaultStreamOptions
     if (streamOptions) {
       opts = { ...defaultStreamOptions, ...streamOptions }
@@ -199,6 +226,10 @@ export class Command implements TCommand<ChildProcess<string>> {
    * Only works if it has been created with the `stream` method.
    */
   public async cancel(): Promise<Result<undefined>> {
+    if (!IS_TAURI && this.webCommand) {
+      return this.webCommand.cancel()
+    }
+
     try {
       this.cancelled = true
       if (!this.childProcess) {
@@ -235,7 +266,7 @@ export class Command implements TCommand<ChildProcess<string>> {
   }
 }
 
-export function isOk(result: ChildProcess<string>): boolean {
+export function isOk(result: TCommandResult): boolean {
   return result.code === 0
 }
 

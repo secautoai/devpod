@@ -1,5 +1,6 @@
 import { TActionID, TActionName, TActionObj } from "@/contexts"
 import { Result, ResultError, Return, THandler, exists, isError, noop } from "@/lib"
+import { IS_TAURI } from "@/lib/platform"
 import {
   TDevcontainerSetup,
   TStreamID,
@@ -19,6 +20,7 @@ import {
   WORKSPACE_COMMAND_ADDITIONAL_FLAGS_KEY,
 } from "../constants"
 import { invoke } from "@tauri-apps/api/core"
+import { webActionStore } from "../webClient/actionStore"
 
 // Every workspace can have one active action at a time,
 // but multiple views might need to listen to the same action.
@@ -48,8 +50,13 @@ export class WorkspacesClient implements TDebuggable {
   }
 
   private async writeEvent(actionID: TActionID, event: TStreamEvent) {
-    // Be wary of the spelling, tauri expects this to be `actionId` instead of `actionID` because of the serde deserialization
-    await invoke("write_action_log", { actionId: actionID, data: JSON.stringify(event) })
+    const data = JSON.stringify(event)
+    if (IS_TAURI) {
+      // Be wary of the spelling, tauri expects this to be `actionId` instead of `actionID` because of the serde deserialization
+      await invoke("write_action_log", { actionId: actionID, data })
+    } else {
+      webActionStore.write(actionID, data)
+    }
   }
 
   private async execActionCmd<T>(
@@ -265,6 +272,21 @@ export class WorkspacesClient implements TDebuggable {
     const unsubscribe = () => {
       cancelled = true
     }
+
+    if (!IS_TAURI) {
+      // Web mode: replay from in-memory store synchronously
+      const events = webActionStore.read(actionID)
+      for (const event of events) {
+        if (cancelled) break
+        try {
+          listener(JSON.parse(event))
+        } catch (e) {
+          console.log(e)
+        }
+      }
+      return unsubscribe
+    }
+
     // Be wary of the spelling, tauri expects this to be `actionId` instead of `actionID` because of the serde deserialization
     invoke<readonly string[]>("get_action_logs", { actionId: actionID })
       .then((events) => {
@@ -295,6 +317,10 @@ export class WorkspacesClient implements TDebuggable {
   }
 
   public async getActionLogFile(actionID: TActionID): Promise<Result<string>> {
+    if (!IS_TAURI) {
+      return Return.Value(webActionStore.filePath(actionID))
+    }
+
     try {
       const path = await invoke<string>("get_action_log_file", { actionId: actionID })
 

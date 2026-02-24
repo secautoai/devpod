@@ -28,6 +28,7 @@ import {
   useWorkspaceStore,
 } from "@/contexts"
 import { exists, hasCapability, useLoginProModal } from "@/lib"
+import { IS_TAURI } from "@/lib/platform"
 import { Routes } from "@/routes.constants"
 import { useChangelogModal } from "./useChangelogModal"
 
@@ -114,6 +115,10 @@ export function useAppReady() {
 
   const handleMessage: Parameters<typeof client.subscribe>[1] = useCallback(
     async (event) => {
+      // handleMessage is only ever called in Tauri mode because client.subscribe
+      // returns a no-op in web mode. Guard here for extra safety.
+      if (!IS_TAURI) return
+
       if (event.type === "ShowDashboard") {
         if (await getCurrentWebviewWindow().isMinimized()) {
           await getCurrentWebviewWindow().unminimize()
