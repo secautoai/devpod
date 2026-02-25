@@ -35,6 +35,15 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: !isWebBuild,
+    // When developing the desktop UI in the browser, proxy /api to the devpod web backend
+    // so that POST /api/command etc. work. Run `devpod web --port 8090` in another terminal.
+    proxy: {
+      "/api": {
+        target: "http://localhost:8090",
+        changeOrigin: true,
+        ws: true,
+      },
+    },
   },
   esbuild: {
     target: "safari14",
