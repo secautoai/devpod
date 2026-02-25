@@ -1,0 +1,16 @@
+services:
+  backend:
+    name: DevPod Backend
+    description: Go backend serving the web UI on port 8090
+    triggeredBy:
+      - postDevcontainerStart
+    commands:
+      start: cd /workspaces/devpod && DEVPOD_BIN=/workspaces/devpod/devpod go build -o devpod . && ./devpod web --port 8090 --open=false
+
+  frontend:
+    name: DevPod Frontend
+    description: Vite dev server for the desktop/web UI on port 1420
+    triggeredBy:
+      - postDevcontainerStart
+    commands:
+      start: cd /workspaces/devpod/desktop && yarn dev

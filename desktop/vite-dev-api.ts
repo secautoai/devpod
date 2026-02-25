@@ -12,16 +12,31 @@
 
 import { type Plugin } from "vite"
 import { type IncomingMessage, type ServerResponse } from "node:http"
-import { spawn, execFile } from "node:child_process"
+import { spawn, execFile, execSync } from "node:child_process"
 import { platform, arch } from "node:os"
+import { resolve } from "node:path"
+import { existsSync } from "node:fs"
 import { WebSocketServer, type WebSocket } from "ws"
 
-// Try to find the devpod binary – check common locations
+const DEVPOD_NOT_FOUND =
+  "DevPod CLI not found. Install it, add it to PATH, or set DEVPOD_BIN to the full path."
+
+// Try to find the devpod binary – check env, PATH, then repo-relative path
 function findDevpod(): string {
-  // Allow override via env var
   if (process.env.DEVPOD_BIN) return process.env.DEVPOD_BIN
 
-  // Fall back to "devpod" on PATH
+  try {
+    const cmd = platform() === "win32" ? "where devpod" : "command -v devpod"
+    const out = execSync(cmd, { encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] })
+    const first = out.trim().split(/\r?\n/)[0]?.trim()
+    if (first) return first
+  } catch {
+    // which/where failed – try repo-relative path (e.g. go build in repo root)
+  }
+
+  const repoBinary = resolve(__dirname, "..", "devpod")
+  if (existsSync(repoBinary)) return repoBinary
+
   return "devpod"
 }
 
@@ -133,8 +148,8 @@ export default function devApiPlugin(): Plugin {
   function runJSONSubcommand(res: ServerResponse, args: string[]) {
     execFile(devpod, args, { timeout: 30_000 }, (err, stdout, stderr) => {
       if (err) {
-        const msg = stderr || err.message
-        res.writeHead(502, { "Content-Type": "text/plain" })
+        const msg = err.code === "ENOENT" ? DEVPOD_NOT_FOUND : stderr || err.message
+        res.writeHead(err.code === "ENOENT" ? 503 : 502, { "Content-Type": "text/plain" })
         res.end(msg)
         return
       }
@@ -152,11 +167,11 @@ export default function devApiPlugin(): Plugin {
     const childEnv = { ...process.env, ...env }
     execFile(devpod, args, { env: childEnv, timeout: 60_000 }, (err, stdout, stderr) => {
       if (err) {
-        // Node ExecException has `code` as exit code number, or string like "ENOENT"
         const exitCode = typeof err.code === "number" ? err.code : 1
+        const stderrMsg = err.code === "ENOENT" ? DEVPOD_NOT_FOUND : (stderr || err.message)
         jsonResponse(res, {
           stdout: stdout ?? "",
-          stderr: stderr || err.message,
+          stderr: stderrMsg,
           code: exitCode,
         })
         return
@@ -180,7 +195,16 @@ export default function devApiPlugin(): Plugin {
 
       if (msg.type === "start" && msg.id && msg.args) {
         const childEnv = { ...process.env, ...(msg.env ?? {}) }
-        const child = spawn(devpod, msg.args, { env: childEnv })
+        let child: ReturnType<typeof spawn>
+        try {
+          child = spawn(devpod, msg.args, { env: childEnv })
+        } catch (err) {
+          const message = err && typeof err === "object" && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT"
+            ? DEVPOD_NOT_FOUND
+            : (err instanceof Error ? err.message : String(err))
+          ws.send(JSON.stringify({ type: "error", id: msg.id, data: message }))
+          return
+        }
         processes.set(msg.id, child)
 
         child.stdout?.on("data", (data: Buffer) => {
@@ -198,9 +222,8 @@ export default function devApiPlugin(): Plugin {
 
         child.on("error", (err) => {
           processes.delete(msg.id)
-          ws.send(
-            JSON.stringify({ type: "error", id: msg.id, data: err.message })
-          )
+          const message = (err as NodeJS.ErrnoException).code === "ENOENT" ? DEVPOD_NOT_FOUND : err.message
+          ws.send(JSON.stringify({ type: "error", id: msg.id, data: message }))
         })
       } else if (msg.type === "cancel" && msg.id) {
         const child = processes.get(msg.id)
