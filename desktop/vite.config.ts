@@ -35,6 +35,21 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: !isWebBuild,
+    // In web-dev mode, proxy API and WebSocket requests to the Go backend
+    // so the frontend at localhost:1420 can reach the `devpod web` server.
+    proxy: isWebBuild
+      ? undefined
+      : {
+          "/api": {
+            target: "http://localhost:8090",
+            changeOrigin: true,
+            ws: true,
+          },
+          "/releases": {
+            target: "http://localhost:8090",
+            changeOrigin: true,
+          },
+        },
   },
   esbuild: {
     target: "safari14",

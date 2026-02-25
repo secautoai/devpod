@@ -64,6 +64,7 @@ func (cmd *WebCmd) Run(ctx context.Context) error {
 	mux.HandleFunc("/api/providers", handleProviders)
 	mux.HandleFunc("/api/workspaces", handleWorkspaces)
 	mux.HandleFunc("/api/health", handleHealth)
+	mux.HandleFunc("/releases", handleReleases)
 
 	// Serve the frontend - use embedded files if available, otherwise serve from local dist
 	frontendHandler, err := buildFrontendHandler()
@@ -100,8 +101,8 @@ func (cmd *WebCmd) Run(ctx context.Context) error {
 func withCORS(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -203,10 +204,10 @@ func handleCommandRun(w http.ResponseWriter, r *http.Request) {
 	cmd := exec.CommandContext(r.Context(), self, req.Args...)
 	cmd.Env = buildEnv(req.Env)
 
-	stdout, _ := cmd.Output()
+	stdout, cmdErr := cmd.Output()
 	exitCode := 0
 	var stderr string
-	if exitErr, ok := err.(*exec.ExitError); ok {
+	if exitErr, ok := cmdErr.(*exec.ExitError); ok {
 		exitCode = exitErr.ExitCode()
 		stderr = string(exitErr.Stderr)
 	}
@@ -389,6 +390,14 @@ func handleSignal(w http.ResponseWriter, r *http.Request) {
 // handleHealth returns 200 OK so load-balancers / health checks can probe the server.
 func handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
+}
+
+// handleReleases returns an empty JSON array. The desktop app fetches release
+// info from the Tauri server; in web mode we don't have that, so we return an
+// empty list to prevent JSON parse errors in the frontend.
+func handleReleases(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte("[]"))
 }
 
 // handleProviders runs `devpod provider list --output=json` and proxies the JSON response.
