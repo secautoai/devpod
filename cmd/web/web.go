@@ -180,7 +180,7 @@ type commandRequest struct {
 type commandResponse struct {
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
-	ExitCode int    `json:"exitCode"`
+	ExitCode int    `json:"code"`
 }
 
 func handleCommandRun(w http.ResponseWriter, r *http.Request) {
