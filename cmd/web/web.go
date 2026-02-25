@@ -61,6 +61,9 @@ func (cmd *WebCmd) Run(ctx context.Context) error {
 	mux.HandleFunc("/api/command", handleCommandRun)
 	mux.HandleFunc("/api/command/stream", handleCommandStream)
 	mux.HandleFunc("/api/signal", handleSignal)
+	mux.HandleFunc("/api/providers", handleProviders)
+	mux.HandleFunc("/api/workspaces", handleWorkspaces)
+	mux.HandleFunc("/api/health", handleHealth)
 
 	// Serve the frontend - use embedded files if available, otherwise serve from local dist
 	frontendHandler, err := buildFrontendHandler()
@@ -138,6 +141,17 @@ func buildFrontendHandler() (http.Handler, error) {
 	}), nil
 }
 
+// devpodSelf returns the path to the running devpod binary.
+// devpodSelfOverride can be set in tests to inject a stub binary.
+var devpodSelfOverride string
+
+func devpodSelf() (string, error) {
+	if devpodSelfOverride != "" {
+		return devpodSelfOverride, nil
+	}
+	return os.Executable()
+}
+
 // ---- API handlers ----
 
 func handleVersion(w http.ResponseWriter, r *http.Request) {
@@ -180,7 +194,7 @@ func handleCommandRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	self, err := os.Executable()
+	self, err := devpodSelf()
 	if err != nil {
 		http.Error(w, "cannot resolve devpod binary", http.StatusInternalServerError)
 		return
@@ -264,7 +278,7 @@ func handleCommandStream(w http.ResponseWriter, r *http.Request) {
 			}
 
 			go func(id string, args []string, env map[string]string) {
-				self, err := os.Executable()
+				self, err := devpodSelf()
 				if err != nil {
 					send(wsOutgoing{Type: "error", ID: id, Data: "cannot resolve devpod binary"})
 					return
@@ -368,6 +382,55 @@ func handleSignal(w http.ResponseWriter, r *http.Request) {
 
 	_ = p.Signal(os.Interrupt)
 	w.WriteHeader(http.StatusOK)
+}
+
+// ---- High-level convenience endpoints ----
+
+// handleHealth returns 200 OK so load-balancers / health checks can probe the server.
+func handleHealth(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleProviders runs `devpod provider list --output=json` and proxies the JSON response.
+// This is a convenience endpoint so the frontend can fetch providers without opening a WebSocket.
+func handleProviders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	runJSONSubcommand(w, []string{"provider", "list", "--output=json", "--log-output=json"})
+}
+
+// handleWorkspaces runs `devpod list --output=json` and proxies the JSON response.
+func handleWorkspaces(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	runJSONSubcommand(w, []string{"list", "--output=json", "--log-output=json"})
+}
+
+// runJSONSubcommand executes the devpod binary with the given args and streams the raw stdout
+// directly to the response writer. Stderr is discarded; on failure a 502 is returned.
+func runJSONSubcommand(w http.ResponseWriter, args []string) {
+	self, err := devpodSelf()
+	if err != nil {
+		http.Error(w, "cannot resolve devpod binary: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	out, err := exec.Command(self, args...).Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			http.Error(w, string(ee.Stderr), http.StatusBadGateway)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(out)
 }
 
 // ---- Utilities ----

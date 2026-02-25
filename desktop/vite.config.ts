@@ -16,6 +16,18 @@ export default defineConfig({
     },
   },
 
+  // Vitest configuration – runs in jsdom so browser globals are available.
+  // @ts-expect-error – vitest injects the `test` field at runtime; vite's own type doesn't know about it.
+  test: {
+    environment: "jsdom",
+    globals: true,
+    include: ["src/**/*.test.{ts,tsx}"],
+    exclude: ["node_modules", "src-tauri"],
+    alias: {
+      "@": resolve(__dirname, "./src"),
+    },
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   // prevent vite from obscuring rust errors
   clearScreen: false,
