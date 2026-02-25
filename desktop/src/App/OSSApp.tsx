@@ -238,7 +238,7 @@ function useProviderUpdates() {
     queryKey: QueryKeys.PROVIDERS_CHECK_UPDATE_ALL,
     queryFn: async () => {
       if (providers === undefined || Object.keys(providers).length === 0) {
-        return
+        return []
       }
 
       const results = await Promise.allSettled(
