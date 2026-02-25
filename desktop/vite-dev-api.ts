@@ -214,9 +214,7 @@ export default function devApiPlugin(): Plugin {
 
     ws.on("close", () => {
       // Clean up any running processes
-      for (const child of processes.values()) {
-        child.kill("SIGINT")
-      }
+      processes.forEach((child) => child.kill("SIGINT"))
       processes.clear()
     })
   }

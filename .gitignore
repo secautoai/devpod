@@ -13,3 +13,4 @@
 /tagsvendor/
 node_modules/
 desktop/src-tauri/gen/schemas
+.history/
