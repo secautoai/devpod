@@ -71,6 +71,14 @@ export function getErrorFromChildProcess(result: ProcessResult): Err<Failed> {
     return acc
   }, [] as string[])
 
+  // If no structured log messages were found, fall back to raw stderr/stdout text
+  if (message.length === 0) {
+    const raw = (result.stderr || result.stdout).trim()
+    if (raw) {
+      return Return.Failed(raw)
+    }
+  }
+
   return Return.Failed(message.join("\n"))
 }
 

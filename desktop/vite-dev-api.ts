@@ -151,19 +151,17 @@ export default function devApiPlugin(): Plugin {
   ) {
     const childEnv = { ...process.env, ...env }
     execFile(devpod, args, { env: childEnv, timeout: 60_000 }, (err, stdout, stderr) => {
-      let code = 0
-      if (err && "code" in err && typeof err.code === "number") {
-        code = err.code
-      } else if (err) {
-        // execFile error (e.g. ENOENT) – binary not found
+      if (err) {
+        // Node ExecException has `code` as exit code number, or string like "ENOENT"
+        const exitCode = typeof err.code === "number" ? err.code : 1
         jsonResponse(res, {
-          stdout: "",
-          stderr: err.message,
-          code: 1,
+          stdout: stdout ?? "",
+          stderr: stderr || err.message,
+          code: exitCode,
         })
         return
       }
-      jsonResponse(res, { stdout, stderr, code })
+      jsonResponse(res, { stdout, stderr, code: 0 })
     })
   }
 
