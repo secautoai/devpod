@@ -1,6 +1,7 @@
 import react from "@vitejs/plugin-react"
 import { resolve } from "node:path"
 import { defineConfig } from "vite"
+import devApiPlugin from "./vite-dev-api"
 
 // When building for the web (`yarn build:web`), we produce a standard SPA bundle
 // that can be embedded in the `devpod web` Go binary.
@@ -9,7 +10,12 @@ const isWebBuild = !process.env.TAURI_ENV_PLATFORM
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // In web-dev mode, serve API endpoints directly from the Vite dev server
+    // so `yarn dev` works without needing the Go backend (`devpod web`).
+    ...(isWebBuild ? [devApiPlugin()] : []),
+  ],
   resolve: {
     alias: {
       "@": resolve(__dirname, "./src"),
@@ -35,21 +41,6 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: !isWebBuild,
-    // In web-dev mode, proxy API and WebSocket requests to the Go backend
-    // so the frontend at localhost:1420 can reach the `devpod web` server.
-    proxy: isWebBuild
-      ? undefined
-      : {
-          "/api": {
-            target: "http://localhost:8090",
-            changeOrigin: true,
-            ws: true,
-          },
-          "/releases": {
-            target: "http://localhost:8090",
-            changeOrigin: true,
-          },
-        },
   },
   esbuild: {
     target: "safari14",
