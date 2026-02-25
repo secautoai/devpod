@@ -1,0 +1,168 @@
+---
+title: DevPod Web UI
+sidebar_label: Web UI
+---
+
+# DevPod Web UI
+
+The DevPod Web UI allows you to run DevPod from any modern browser without installing the desktop application. It provides the same workspace management, provider configuration, and IDE launch experience as the Tauri-based desktop app.
+
+## Prerequisites
+
+- **Go 1.25+** (for building the CLI)
+- **Node.js 18+** and **Yarn 1.x** (for building the frontend)
+- **task** (optional, for using Taskfile shortcuts)
+
+## Quick Start
+
+```bash
+# 1. Build the frontend
+cd desktop
+yarn install
+yarn build:web
+
+# 2. Copy the dist output into the Go embed directory
+cp -r dist ../cmd/web/dist
+
+# 3. Build the devpod binary with embedded frontend
+cd ..
+go build -tags embedfrontend -o devpod .
+
+# 4. Start the web server
+./devpod web
+```
+
+DevPod will open your default browser at `http://127.0.0.1:8090`.
+
+## Build Options
+
+### Development Mode (no embed)
+
+During development you can run the frontend dev server and the Go backend separately:
+
+```bash
+# Terminal 1: Start the Go backend (without embedded frontend)
+go build -o devpod . && ./devpod web --port 8090
+
+# Terminal 2: Start the Vite dev server
+cd desktop && yarn dev
+```
+
+The Vite dev server (port 1420) will proxy API requests to the Go backend. The frontend detects web mode automatically when `window.__TAURI__` is absent.
+
+### Production Build (embedded frontend)
+
+```bash
+# Build frontend
+cd desktop && yarn build:web && cd ..
+
+# Copy dist into the Go embed path
+cp -r desktop/dist cmd/web/dist
+
+# Build with embed tag
+go build -tags embedfrontend -o devpod .
+```
+
+The resulting binary is fully self-contained — no external files needed.
+
+## CLI Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--host` | `127.0.0.1` | Host address to bind the web server to |
+| `--port` | `8090` | Port to run the web server on |
+| `--open` | `true` | Automatically open the browser |
+
+### Examples
+
+```bash
+# Bind to all interfaces (for remote access)
+devpod web --host 0.0.0.0 --port 8080
+
+# Don't auto-open the browser
+devpod web --open=false
+
+# Enterprise mode with authentication
+devpod web --host 0.0.0.0 --port 443 --auth
+```
+
+## Architecture
+
+```
+Browser ──► devpod web (Go HTTP server)
+                │
+                ├── /api/command      POST   Synchronous CLI execution
+                ├── /api/command/stream WS    Streaming CLI execution
+                ├── /api/version      GET    Server version
+                ├── /api/platform     GET    Server OS/arch
+                ├── /api/providers    GET    List configured providers
+                ├── /api/workspaces   GET    List workspaces
+                ├── /api/health       GET    Health check
+                ├── /api/auth/login   POST   User login (enterprise)
+                ├── /api/auth/me      GET    Current user info (enterprise)
+                ├── /api/admin/*      GET    Admin endpoints (enterprise)
+                └── /*                GET    Embedded SPA frontend
+```
+
+The web server proxies CLI commands by spawning `devpod` sub-processes. The frontend is the same React SPA used by the desktop app, with `IS_TAURI=false` enabling web-specific code paths:
+
+- **Command execution**: Uses `fetch()` POST instead of Tauri shell commands
+- **Streaming**: Uses WebSocket instead of Tauri event listeners
+- **Storage**: Uses `localStorage` instead of file-backed Tauri store
+- **File dialogs**: Replaced with text inputs for source URLs
+
+## Enterprise Features
+
+When started with `--auth`, the web server enables multi-user mode:
+
+- **JWT-based authentication**: Users log in with username/password
+- **Per-user isolation**: Each user gets a separate DevPod config directory
+- **Role-based access**: Admin users can view and manage all users' workspaces
+- **Per-user Docker context**: Users can be assigned different Docker daemon endpoints
+
+See the [Enterprise Setup](#enterprise-setup) section below for configuration details.
+
+## Enterprise Setup
+
+### Initial Admin Account
+
+On first startup with `--auth`, DevPod web creates a default admin account:
+
+- **Username**: `admin`
+- **Password**: `admin` (change immediately after first login)
+
+### User Management
+
+Admins can manage users through the web UI at `/admin/users` or via the API:
+
+```bash
+# List users
+curl -H "Authorization: Bearer <admin-token>" http://localhost:8090/api/admin/users
+
+# Create a user
+curl -X POST -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"secret","role":"user"}' \
+  http://localhost:8090/api/admin/users
+```
+
+### Per-User Docker Daemon
+
+Each user can be configured with a separate Docker daemon endpoint to provide resource isolation:
+
+```bash
+curl -X PUT -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"dockerHost":"tcp://docker-alice:2375"}' \
+  http://localhost:8090/api/admin/users/alice
+```
+
+## Running Tests
+
+```bash
+# Go backend tests
+go test ./cmd/web/...
+
+# TypeScript frontend tests
+cd desktop && yarn test
+```
