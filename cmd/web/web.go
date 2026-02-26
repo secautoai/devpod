@@ -651,7 +651,11 @@ func makeAdminUserDetailHandler(database *db.DB) http.HandlerFunc {
 					http.Error(w, "invalid request body", http.StatusBadRequest)
 					return
 				}
-				if err := database.Permissions.SetAllowed(username, req.Providers); err != nil {
+				var providers []string
+				if req.Providers != nil {
+					providers = *req.Providers
+				}
+				if err := database.Permissions.SetAllowed(username, providers); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}

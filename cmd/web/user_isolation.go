@@ -64,8 +64,3 @@ func buildUserEnv(username, devpodHome, dockerHost string, extra map[string]stri
 	}
 	return env
 }
-
-// contextWithClaims stores JWT claims in a context using context.WithValue.
-func contextWithClaims(ctx context.Context, claims *Claims) context.Context {
-	return context.WithValue(ctx, claimsKey, claims)
-}

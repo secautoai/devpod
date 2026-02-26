@@ -21,9 +21,19 @@ import { WebSocketServer, type WebSocket } from "ws"
 const DEVPOD_NOT_FOUND =
   "DevPod CLI not found. Install it, add it to PATH, or set DEVPOD_BIN to the full path."
 
-// Try to find the devpod binary – check env, PATH, then repo-relative path
+// Try to find the devpod binary – env, then repo-relative paths, then PATH
 function findDevpod(): string {
   if (process.env.DEVPOD_BIN) return process.env.DEVPOD_BIN
+
+  // Prefer repo-relative paths (e.g. go build -o devpod . in repo root)
+  const candidates = [
+    resolve(__dirname, "..", "devpod"),       // desktop/../devpod
+    resolve(process.cwd(), "..", "devpod"),   // cwd/../devpod (e.g. when cwd is desktop)
+    resolve(process.cwd(), "devpod"),        // cwd/devpod (e.g. when cwd is repo root)
+  ]
+  for (const p of candidates) {
+    if (existsSync(p)) return p
+  }
 
   try {
     const cmd = platform() === "win32" ? "where devpod" : "command -v devpod"
@@ -31,11 +41,8 @@ function findDevpod(): string {
     const first = out.trim().split(/\r?\n/)[0]?.trim()
     if (first) return first
   } catch {
-    // which/where failed – try repo-relative path (e.g. go build in repo root)
+    // which/where failed
   }
-
-  const repoBinary = resolve(__dirname, "..", "devpod")
-  if (existsSync(repoBinary)) return repoBinary
 
   return "devpod"
 }

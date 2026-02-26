@@ -5,7 +5,7 @@ services:
     triggeredBy:
       - postDevcontainerStart
     commands:
-      start: cd /workspaces/devpod && DEVPOD_BIN=/workspaces/devpod/devpod go build -o devpod . && ./devpod web --port 8090 --open=false
+      start: cd /workspaces/devpod && go build -o devpod . && ./devpod web --port 8090 --open=false
 
   frontend:
     name: DevPod Frontend
