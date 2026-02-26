@@ -1,0 +1,31 @@
+name: mock
+version: v0.0.1
+description: "Mock provider for testing DevPod without Docker or SSH"
+icon: https://devpod.sh/favicon.ico
+home: $HOME/.devpod-mock
+
+exec:
+  init:
+    - devpod-provider-mock
+    - init
+  create:
+    - devpod-provider-mock
+    - create
+  start:
+    - devpod-provider-mock
+    - start
+  stop:
+    - devpod-provider-mock
+    - stop
+  delete:
+    - devpod-provider-mock
+    - delete
+  status:
+    - devpod-provider-mock
+    - status
+
+options:
+  MOCK_PROVIDER_DIR:
+    description: "Directory to store workspace state files (defaults to ~/.devpod-mock/workspaces)"
+    required: false
+    default: ""

@@ -8,7 +8,7 @@ import { Location, RouterProvider } from "react-router"
 import "@xterm/xterm/css/xterm.css"
 import "./assets/fonts.css"
 import { ThemeProvider } from "./Theme/ThemeProvider"
-import { SettingsProvider } from "./contexts"
+import { SettingsProvider, AuthProvider, BrandingProvider } from "./contexts"
 import { router } from "./routes"
 import { client } from "./client/client"
 import { ColorModeScript } from "@chakra-ui/react"
@@ -51,17 +51,21 @@ function Root() {
   return (
     <StrictMode>
       <SettingsProvider>
-        <ColorModeScript initialColorMode={"system"} />
-        <ThemeProvider>
-          <QueryClientProvider client={queryClient}>
-            <RouterProvider router={router} />
-            {/* Will be disabled in production automatically */}
-            <ReactQueryDevtools
-              position="bottom-right"
-              toggleButtonProps={{ style: { margin: "0.5em 0.5em 2rem" } }}
-            />
-          </QueryClientProvider>
-        </ThemeProvider>
+        <AuthProvider>
+          <BrandingProvider>
+            <ColorModeScript initialColorMode={"system"} />
+            <ThemeProvider>
+              <QueryClientProvider client={queryClient}>
+                <RouterProvider router={router} />
+                {/* Will be disabled in production automatically */}
+                <ReactQueryDevtools
+                  position="bottom-right"
+                  toggleButtonProps={{ style: { margin: "0.5em 0.5em 2rem" } }}
+                />
+              </QueryClientProvider>
+            </ThemeProvider>
+          </BrandingProvider>
+        </AuthProvider>
       </SettingsProvider>
     </StrictMode>
   )

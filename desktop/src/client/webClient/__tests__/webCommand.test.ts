@@ -180,3 +180,39 @@ describe("WebCommand.run", () => {
     expect(result.err).toBe(true)
   })
 })
+
+// ─── Auth token injection ──────────────────────────────────────────────────────
+
+describe("WebCommand auth token", () => {
+  beforeEach(() => {
+    WebCommand.token = null
+  })
+
+  afterEach(() => {
+    WebCommand.token = null
+  })
+
+  it("attaches Authorization header when token is set", async () => {
+    WebCommand.token = "test-jwt-token"
+    stubFetch({ stdout: "", stderr: "", code: 0 })
+
+    const cmd = new WebCommand(["list"])
+    await cmd.run()
+
+    const [, opts] = vi.mocked(fetch).mock.calls[0]
+    const headers = (opts as RequestInit).headers as Record<string, string>
+    expect(headers["Authorization"]).toBe("Bearer test-jwt-token")
+  })
+
+  it("omits Authorization header when token is null", async () => {
+    WebCommand.token = null
+    stubFetch({ stdout: "", stderr: "", code: 0 })
+
+    const cmd = new WebCommand(["list"])
+    await cmd.run()
+
+    const [, opts] = vi.mocked(fetch).mock.calls[0]
+    const headers = (opts as RequestInit).headers as Record<string, string>
+    expect(headers["Authorization"]).toBeUndefined()
+  })
+})

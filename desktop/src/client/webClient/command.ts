@@ -33,6 +33,7 @@ type WsIncoming =
 
 // Shared WebSocket connection (lazily created, auto-reconnected)
 let sharedWs: WebSocket | null = null
+let sharedWsToken: string | null = null
 const pendingCallbacks = new Map<
   string,
   {
@@ -43,15 +44,24 @@ const pendingCallbacks = new Map<
   }
 >()
 
-function getSharedWs(): Promise<WebSocket> {
+function getSharedWs(token: string | null): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    if (sharedWs && sharedWs.readyState === WebSocket.OPEN) {
+    if (sharedWs && sharedWs.readyState === WebSocket.OPEN && sharedWsToken === token) {
       resolve(sharedWs)
       return
     }
+    // Close stale connection (token changed or disconnected)
+    if (sharedWs && sharedWs.readyState === WebSocket.OPEN) {
+      sharedWs.close()
+      sharedWs = null
+    }
 
-    const ws = new WebSocket(WEB_SERVER_WS_URL)
+    const wsUrl = token
+      ? `${WEB_SERVER_WS_URL}?token=${encodeURIComponent(token)}`
+      : WEB_SERVER_WS_URL
+    const ws = new WebSocket(wsUrl)
     sharedWs = ws
+    sharedWsToken = token
 
     ws.onopen = () => resolve(ws)
     ws.onerror = (e) => reject(new Error("WebSocket connection failed"))
@@ -107,6 +117,8 @@ export class WebCommand {
   public static HTTP_PROXY: string = ""
   public static HTTPS_PROXY: string = ""
   public static NO_PROXY: string = ""
+  /** JWT token set by AuthContext after login. Attached to every API request. */
+  public static token: string | null = null
 
   constructor(args: string[]) {
     this.args = args
@@ -131,9 +143,13 @@ export class WebCommand {
   /** Run the command synchronously (collects all stdout/stderr). */
   public async run(): Promise<Result<ChildProcessResult>> {
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" }
+      if (WebCommand.token) {
+        headers["Authorization"] = `Bearer ${WebCommand.token}`
+      }
       const res = await fetch(WEB_SERVER_URL + "/api/command", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ args: this.args, env: this.env }),
       })
       if (!res.ok) {
@@ -149,7 +165,7 @@ export class WebCommand {
   /** Stream command output to a listener function. */
   public async stream(listener: TStreamEventListenerFn): Promise<ResultError> {
     try {
-      const ws = await getSharedWs()
+      const ws = await getSharedWs(WebCommand.token)
       this.id = nextId()
 
       return await new Promise<ResultError>((resolve) => {

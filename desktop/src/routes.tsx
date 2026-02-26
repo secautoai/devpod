@@ -3,8 +3,15 @@ import { App, ErrorPage } from "./App"
 import { ProRoot } from "./ProRoot"
 import { Routes } from "./routes.constants"
 import { Actions, Pro, Providers, Settings, Workspaces } from "./views"
+import { LoginPage } from "./views/Login"
+import { AdminLayout } from "./views/Admin"
+import { ProtectedRoute } from "./components/ProtectedRoute"
 
 export const router = createBrowserRouter([
+  {
+    path: Routes.LOGIN,
+    element: <LoginPage />,
+  },
   {
     path: Routes.ROOT,
     element: <App />,
@@ -41,37 +48,53 @@ export const router = createBrowserRouter([
           },
         ],
       },
+      // All OSS routes require auth in web mode
       {
-        path: Routes.WORKSPACES,
-        element: <Workspaces.Workspaces />,
+        element: <ProtectedRoute />,
         children: [
           {
-            index: true,
-            element: <Workspaces.ListWorkspaces />,
+            path: Routes.WORKSPACES,
+            element: <Workspaces.Workspaces />,
+            children: [
+              {
+                index: true,
+                element: <Workspaces.ListWorkspaces />,
+              },
+              {
+                path: Routes.WORKSPACE_CREATE,
+                element: <Workspaces.CreateWorkspace />,
+              },
+            ],
           },
           {
-            path: Routes.WORKSPACE_CREATE,
-            element: <Workspaces.CreateWorkspace />,
+            path: Routes.PROVIDERS,
+            element: <Providers.Providers />,
+            children: [
+              { index: true, element: <Providers.ListProviders /> },
+              {
+                path: Routes.PROVIDER,
+                element: <Providers.Provider />,
+              },
+            ],
+          },
+          {
+            path: Routes.ACTIONS,
+            element: <Actions.Actions />,
+            children: [{ path: Routes.ACTION, element: <Actions.Action /> }],
+          },
+          { path: Routes.SETTINGS, element: <Settings.Settings /> },
+          // Admin routes: require admin role
+          {
+            element: <ProtectedRoute requireAdmin />,
+            children: [
+              { path: Routes.ADMIN, element: <AdminLayout /> },
+              { path: Routes.ADMIN_USERS, element: <AdminLayout /> },
+              { path: Routes.ADMIN_LOGS, element: <AdminLayout /> },
+              { path: Routes.ADMIN_BRANDING, element: <AdminLayout /> },
+            ],
           },
         ],
       },
-      {
-        path: Routes.PROVIDERS,
-        element: <Providers.Providers />,
-        children: [
-          { index: true, element: <Providers.ListProviders /> },
-          {
-            path: Routes.PROVIDER,
-            element: <Providers.Provider />,
-          },
-        ],
-      },
-      {
-        path: Routes.ACTIONS,
-        element: <Actions.Actions />,
-        children: [{ path: Routes.ACTION, element: <Actions.Action /> }],
-      },
-      { path: Routes.SETTINGS, element: <Settings.Settings /> },
     ],
   },
 ])
