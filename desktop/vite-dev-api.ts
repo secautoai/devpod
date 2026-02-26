@@ -18,6 +18,35 @@ import { resolve } from "node:path"
 import { existsSync } from "node:fs"
 import { WebSocketServer, type WebSocket } from "ws"
 
+// ─── Dev-mode in-memory store ─────────────────────────────────────────────────
+
+const DEV_TOKEN = "dev-mock-token"
+
+type MockUser = { id: string; username: string; role: "admin" | "user"; dockerHost: string; createdAt: string; password: string }
+
+const mockUsers: Map<string, MockUser> = new Map([
+  ["admin", { id: "1", username: "admin", role: "admin", dockerHost: "", createdAt: new Date().toISOString(), password: "admin" }],
+])
+
+let mockBranding = {
+  appName: "DevPod",
+  logoUrl: "",
+  faviconUrl: "",
+  providerDownloadUrl: "https://github.com/loft-sh/devpod/releases",
+  supportUrl: "",
+  docsUrl: "https://devpod.sh/docs",
+  primaryColor: "",
+}
+
+const mockProviderPerms: Map<string, string[] | null> = new Map()
+const mockOpLogs: Array<{ id: string; username: string; action: string; target: string; args: string[]; startedAt: string; exitCode: number; error: string }> = []
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function userPublic(u: MockUser) {
+  return { id: u.id, username: u.username, role: u.role, dockerHost: u.dockerHost, createdAt: u.createdAt }
+}
+
 const DEVPOD_NOT_FOUND =
   "DevPod CLI not found. Install it, add it to PATH, or set DEVPOD_BIN to the full path."
 
@@ -130,6 +159,135 @@ export default function devApiPlugin(): Plugin {
           // Signal handling is best-effort in dev mode
           res.writeHead(200)
           res.end()
+          return
+        }
+
+        // ── Auth endpoints (dev mocks) ──────────────────────────────────────
+
+        // POST /api/login
+        if (url === "/api/login" && req.method === "POST") {
+          try {
+            const body = JSON.parse(await readBody(req)) as { username?: string; password?: string }
+            const user = mockUsers.get(body.username ?? "")
+            if (!user || user.password !== body.password) {
+              res.writeHead(401, { "Content-Type": "text/plain" })
+              res.end("invalid credentials")
+              return
+            }
+            jsonResponse(res, { token: DEV_TOKEN, user: userPublic(user) })
+          } catch {
+            res.writeHead(400, { "Content-Type": "text/plain" })
+            res.end("invalid request body")
+          }
+          return
+        }
+
+        // GET /api/me
+        if (url === "/api/me" && req.method === "GET") {
+          const auth = req.headers["authorization"] ?? ""
+          if (!auth.startsWith("Bearer ")) { res.writeHead(401, { "Content-Type": "text/plain" }); res.end("unauthorized"); return }
+          const user = mockUsers.get("admin")!
+          jsonResponse(res, userPublic(user))
+          return
+        }
+
+        // GET /api/branding  (public)
+        if (url === "/api/branding" && req.method === "GET") {
+          jsonResponse(res, mockBranding)
+          return
+        }
+
+        // PUT /api/admin/branding
+        if (url === "/api/admin/branding" && req.method === "PUT") {
+          try {
+            const partial = JSON.parse(await readBody(req))
+            mockBranding = { ...mockBranding, ...partial }
+            jsonResponse(res, mockBranding)
+          } catch { res.writeHead(400).end("bad request") }
+          return
+        }
+
+        // DELETE /api/admin/branding
+        if (url === "/api/admin/branding" && req.method === "DELETE") {
+          mockBranding = { appName: "DevPod", logoUrl: "", faviconUrl: "", providerDownloadUrl: "https://github.com/loft-sh/devpod/releases", supportUrl: "", docsUrl: "https://devpod.sh/docs", primaryColor: "" }
+          jsonResponse(res, mockBranding)
+          return
+        }
+
+        // GET /api/admin/users  /  POST /api/admin/users
+        if (url === "/api/admin/users" && (req.method === "GET" || req.method === "POST")) {
+          if (req.method === "GET") {
+            jsonResponse(res, [...mockUsers.values()].map(userPublic))
+          } else {
+            try {
+              const body = JSON.parse(await readBody(req)) as { username: string; password: string; role: "admin" | "user" }
+              if (mockUsers.has(body.username)) { res.writeHead(409, { "Content-Type": "text/plain" }); res.end("username already exists"); return }
+              const newUser: MockUser = { id: String(Date.now()), username: body.username, role: body.role ?? "user", dockerHost: "", createdAt: new Date().toISOString(), password: body.password }
+              mockUsers.set(body.username, newUser)
+              res.writeHead(201, { "Content-Type": "application/json" }); res.end(JSON.stringify(userPublic(newUser)))
+            } catch { res.writeHead(400).end("bad request") }
+          }
+          return
+        }
+
+        // PUT|DELETE /api/admin/users/:username
+        const adminUserMatch = url.match(/^\/api\/admin\/users\/([^/]+)$/)
+        if (adminUserMatch) {
+          const uname = decodeURIComponent(adminUserMatch[1])
+          if (req.method === "PUT") {
+            try {
+              const body = JSON.parse(await readBody(req)) as { role?: "admin" | "user"; dockerHost?: string }
+              const u = mockUsers.get(uname)
+              if (!u) { res.writeHead(404).end("not found"); return }
+              if (body.role) u.role = body.role
+              if (body.dockerHost !== undefined) u.dockerHost = body.dockerHost
+              jsonResponse(res, userPublic(u))
+            } catch { res.writeHead(400).end("bad request") }
+          } else if (req.method === "DELETE") {
+            mockUsers.delete(uname)
+            res.writeHead(204).end()
+          } else { res.writeHead(405).end() }
+          return
+        }
+
+        // GET|PUT /api/admin/users/:username/providers
+        const adminProviderMatch = url.match(/^\/api\/admin\/users\/([^/]+)\/providers$/)
+        if (adminProviderMatch) {
+          const uname = decodeURIComponent(adminProviderMatch[1])
+          if (req.method === "GET") {
+            const perms = mockProviderPerms.get(uname)
+            jsonResponse(res, perms === undefined ? { unrestricted: true, providers: null } : { unrestricted: false, providers: perms })
+          } else if (req.method === "PUT") {
+            try {
+              const body = JSON.parse(await readBody(req)) as { providers: string[] | null }
+              mockProviderPerms.set(uname, body.providers)
+              res.writeHead(204).end()
+            } catch { res.writeHead(400).end("bad request") }
+          } else { res.writeHead(405).end() }
+          return
+        }
+
+        // GET /api/admin/logs
+        if (url.startsWith("/api/admin/logs") && req.method === "GET") {
+          jsonResponse(res, mockOpLogs)
+          return
+        }
+
+        // GET /api/logs
+        if (url.startsWith("/api/logs") && req.method === "GET") {
+          jsonResponse(res, mockOpLogs)
+          return
+        }
+
+        // POST /api/user/password
+        if (url === "/api/user/password" && req.method === "POST") {
+          try {
+            const body = JSON.parse(await readBody(req)) as { currentPassword: string; newPassword: string }
+            const u = mockUsers.get("admin")!
+            if (u.password !== body.currentPassword) { res.writeHead(401, { "Content-Type": "text/plain" }); res.end("current password incorrect"); return }
+            u.password = body.newPassword
+            res.writeHead(204).end()
+          } catch { res.writeHead(400).end("bad request") }
           return
         }
 
