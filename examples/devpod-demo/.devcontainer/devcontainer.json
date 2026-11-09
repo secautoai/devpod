@@ -1,0 +1,11 @@
+{
+  "name": "DevPod Demo",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-22.04",
+  "features": {},
+  "customizations": {
+    "vscode": {
+      "extensions": []
+    }
+  },
+  "postCreateCommand": "echo 'DevPod demo workspace ready'"
+}
