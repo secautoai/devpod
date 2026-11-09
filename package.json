@@ -1,6 +1,7 @@
 {
   "name": "devpod",
   "private": true,
+  "workspaces": [],
   "devDependencies": {
     "@biomejs/biome": "2.4.2"
   }

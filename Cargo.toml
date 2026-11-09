@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+# Rust service crates only. desktop/src-tauri stays a standalone Tauri crate
+# and is built through Yarn. hack/sync-workspaces.py rewrites this members
+# array from monorepo.manifest.json once those directories exist.
+members = [
+]

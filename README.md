@@ -1,3 +1,21 @@
+# DevPod monorepo
+
+This tree is the phase-1 DevPod monorepo. The repository root is the DevPod CLI and desktop app (MPL-2.0), based on the `claude/add-web-ui-W5nzb` branch. Satellite directories sit beside that CLI. Layout, licenses, the `devpod-backend` decision, and how to reconcile a local `devpod-monorepo` checkout are in [docs/monorepo.md](docs/monorepo.md).
+
+| Path | What it is |
+| --- | --- |
+| `/` | DevPod CLI, desktop UI, providers, and the upstream Ginkgo suite in `e2e/`. MPL-2.0. |
+| `devpod-api/` | Rust REST API. Import with history when the private repo is readable. |
+| `devpod-enterprise/` | Rust JWT service. Same import rule. |
+| `devpod-ssh-gateway/` | Rust SSH gateway (`russh`). Default branch is detected, not assumed. |
+| `devpod-pro-ui/` | React UI. npm workspace once imported. |
+| `devpod-e2e-tests/` | Playwright suite. Separate from `e2e/`. |
+| `examples/devpod-demo/` | Devcontainer test repo, history preserved. No license file; none was added. |
+
+Build and test locally with `./scripts/check.sh` (or `make check`). That builds the CLI and the desktop web bundle, then runs the Go web tests, desktop Vitest, Cargo and npm tests for satellites that are present, and a JSON check of `examples/devpod-demo`. This phase does not add a GitHub Actions workflow. `devpod-backend` is the CLI fork and is not copied in again.
+
+The DevPod CLI readme follows.
+
 <br>
 <a href="https://www.devpod.sh">
   <picture width="500">

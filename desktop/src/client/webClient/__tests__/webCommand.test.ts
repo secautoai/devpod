@@ -10,6 +10,18 @@ import { DEVPOD_UI_ENV_VAR } from "../../constants"
 
 // ─── fetch stub ───────────────────────────────────────────────────────────────
 
+function fetchInit(): RequestInit {
+  const init = vi.mocked(fetch).mock.calls[0]?.[1]
+  if (init === undefined) {
+    throw new Error("fetch was not called")
+  }
+  return init
+}
+
+function sentBody(): { env: Record<string, string | undefined>; args?: string[] } {
+  return JSON.parse(fetchInit().body as string)
+}
+
 function stubFetch(response: Record<string, unknown>, ok = true, status = 200) {
   vi.stubGlobal(
     "fetch",
@@ -46,9 +58,7 @@ describe("WebCommand constructor", () => {
     // Trigger run so we can inspect what was sent.
     await cmd.run()
 
-    const body = JSON.parse(
-      (vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string
-    )
+    const body = sentBody()
     expect(body.env[DEVPOD_UI_ENV_VAR]).toBe("true")
   })
 
@@ -59,9 +69,7 @@ describe("WebCommand constructor", () => {
     const cmd = new WebCommand(["list"])
     await cmd.run()
 
-    const body = JSON.parse(
-      (vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string
-    )
+    const body = sentBody()
     expect(body.env.HTTP_PROXY).toBe("http://proxy.example.com")
   })
 
@@ -72,9 +80,7 @@ describe("WebCommand constructor", () => {
     const cmd = new WebCommand(["list"])
     await cmd.run()
 
-    const body = JSON.parse(
-      (vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string
-    )
+    const body = sentBody()
     expect(body.env.HTTPS_PROXY).toBe("https://proxy.example.com")
   })
 
@@ -85,9 +91,7 @@ describe("WebCommand constructor", () => {
     const cmd = new WebCommand(["list"])
     await cmd.run()
 
-    const body = JSON.parse(
-      (vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string
-    )
+    const body = sentBody()
     expect(body.env.NO_PROXY).toBe("localhost,127.0.0.1")
   })
 
@@ -97,9 +101,7 @@ describe("WebCommand constructor", () => {
     const cmd = new WebCommand(["version"])
     await cmd.run()
 
-    const body = JSON.parse(
-      (vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string
-    )
+    const body = sentBody()
     expect(body.env.HTTP_PROXY).toBeUndefined()
     expect(body.env.HTTPS_PROXY).toBeUndefined()
     expect(body.env.NO_PROXY).toBeUndefined()
@@ -112,9 +114,7 @@ describe("WebCommand constructor", () => {
     const cmd = new WebCommand(["list"])
     await cmd.run()
 
-    const body = JSON.parse(
-      (vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string
-    )
+    const body = sentBody()
     expect(body.env.MY_KEY).toBe("my_val")
     expect(body.env.ANOTHER).toBe("yes")
   })
@@ -126,9 +126,7 @@ describe("WebCommand constructor", () => {
     const cmd = new WebCommand(["list"])
     await cmd.run()
 
-    const body = JSON.parse(
-      (vi.mocked(fetch).mock.calls[0][1] as RequestInit).body as string
-    )
+    const body = sentBody()
     expect(body.env.GOOD).toBe("value")
     expect(body.env.BADENTRY).toBeUndefined()
   })
@@ -144,11 +142,11 @@ describe("WebCommand.run", () => {
     await cmd.run()
 
     expect(fetch).toHaveBeenCalledOnce()
-    const [url, opts] = vi.mocked(fetch).mock.calls[0]
-    expect(String(url)).toContain("/api/command")
-    expect((opts as RequestInit).method).toBe("POST")
+    const init = fetchInit()
+    expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toContain("/api/command")
+    expect(init.method).toBe("POST")
 
-    const body = JSON.parse((opts as RequestInit).body as string)
+    const body = sentBody()
     expect(body.args).toEqual(["version", "--output=json"])
   })
 
@@ -199,8 +197,7 @@ describe("WebCommand auth token", () => {
     const cmd = new WebCommand(["list"])
     await cmd.run()
 
-    const [, opts] = vi.mocked(fetch).mock.calls[0]
-    const headers = (opts as RequestInit).headers as Record<string, string>
+    const headers = fetchInit().headers as Record<string, string>
     expect(headers["Authorization"]).toBe("Bearer test-jwt-token")
   })
 
@@ -211,8 +208,7 @@ describe("WebCommand auth token", () => {
     const cmd = new WebCommand(["list"])
     await cmd.run()
 
-    const [, opts] = vi.mocked(fetch).mock.calls[0]
-    const headers = (opts as RequestInit).headers as Record<string, string>
+    const headers = fetchInit().headers as Record<string, string>
     expect(headers["Authorization"]).toBeUndefined()
   })
 })
