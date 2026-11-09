@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewCmd creates a new cobra command
+// NewCmd creates a new cobra command.
 func NewCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	c := &cobra.Command{
 		Use:    "daemon",
@@ -28,7 +28,11 @@ func NewCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	return c
 }
 
-func findProProvider(ctx context.Context, context, provider, host string, log log.Logger) (*config.Config, *providerpkg.ProviderConfig, error) {
+func findProProvider(
+	ctx context.Context,
+	context, provider, host string,
+	log log.Logger,
+) (*config.Config, *providerpkg.ProviderConfig, error) {
 	devPodConfig, err := config.LoadConfig(context, provider)
 	if err != nil {
 		return nil, nil, err

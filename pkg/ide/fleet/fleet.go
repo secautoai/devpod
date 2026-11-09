@@ -15,17 +15,13 @@ import (
 	copy2 "github.com/skevetter/devpod/pkg/copy"
 	devpodhttp "github.com/skevetter/devpod/pkg/http"
 	"github.com/skevetter/devpod/pkg/ide"
-	"github.com/skevetter/devpod/pkg/single"
 	"github.com/skevetter/devpod/pkg/util"
 	"github.com/skevetter/log"
 	"github.com/skevetter/log/scanner"
 )
 
 const (
-	FleetURLFile = "/tmp/devpod-fleet.url.txt"
-)
-
-const (
+	FleetURLFileName    = config.BinaryName + "-fleet.url.txt"
 	VersionOption       = "VERSION"
 	DownloadAmd64Option = "DOWNLOAD_AMD64"
 	DownloadArm64Option = "DOWNLOAD_ARM64"
@@ -49,7 +45,11 @@ var Options = ide.Options{
 	},
 }
 
-func NewFleetServer(userName string, values map[string]config.OptionValue, log log.Logger) *FleetServer {
+func NewFleetServer(
+	userName string,
+	values map[string]config.OptionValue,
+	log log.Logger,
+) *FleetServer {
 	return &FleetServer{
 		values:   values,
 		userName: userName,
@@ -92,10 +92,14 @@ func (o *FleetServer) Install(projectDir string) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("unexpected status code while trying to download fleet from %s: %d", url, resp.StatusCode)
+		return fmt.Errorf(
+			"unexpected status code while trying to download fleet from %s: %d",
+			url,
+			resp.StatusCode,
+		)
 	}
 
-	f, err := os.OpenFile(fleetBinary, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0755)
+	f, err := os.OpenFile(fleetBinary, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o755) // #nosec G302,G304
 	if err != nil {
 		return err
 	}
@@ -124,7 +128,7 @@ func (o *FleetServer) Start(binaryPath, location, projectDir string) error {
 	var readCloser io.ReadCloser
 	stderrBuffer := &bytes.Buffer{}
 
-	err := single.Single("fleet.pid", func() (*exec.Cmd, error) {
+	err := command.StartBackgroundOnce("fleet", func() (*exec.Cmd, error) {
 		o.log.Infof("Starting fleet in background...")
 		// Determine version of fleet to use
 		var runCommand string
@@ -132,12 +136,17 @@ func (o *FleetServer) Start(binaryPath, location, projectDir string) error {
 		if version == "latest" {
 			runCommand = fmt.Sprintf(
 				"%s launch workspace -- --projectDir '%s' --cache-path '%s' --auth=accept-everyone --publish --enableSmartMode",
-				binaryPath, projectDir, location,
+				binaryPath,
+				projectDir,
+				location,
 			)
 		} else {
 			runCommand = fmt.Sprintf(
 				"%s launch workspace --workspace-version %s -- --projectDir '%s' --cache-path '%s' --auth=accept-everyone --publish --enableSmartMode",
-				binaryPath, version, projectDir, location,
+				binaryPath,
+				version,
+				projectDir,
+				location,
 			)
 		}
 
@@ -173,7 +182,12 @@ func (o *FleetServer) Start(binaryPath, location, projectDir string) error {
 		text := s.Text()
 		if strings.Contains(text, "https://fleet.jetbrains.com/") {
 			index := strings.Index(text, "https://fleet.jetbrains.com/")
-			err = os.WriteFile(FleetURLFile, []byte(strings.TrimSpace(text[index:])), 0600)
+			fleetURLFile := filepath.Join(location, FleetURLFileName)
+			err = os.WriteFile(
+				fleetURLFile,
+				[]byte(strings.TrimSpace(text[index:])),
+				0o600,
+			) // #nosec G703
 			if err != nil {
 				return err
 			}
@@ -185,7 +199,11 @@ func (o *FleetServer) Start(binaryPath, location, projectDir string) error {
 		}
 	}
 
-	return fmt.Errorf("seems like there was an error starting up fleet: %s%s", stdoutBuffer.String(), stderrBuffer.String())
+	return fmt.Errorf(
+		"seems like there was an error starting up fleet: %s%s",
+		stdoutBuffer.String(),
+		stderrBuffer.String(),
+	)
 }
 
 func (o *FleetServer) startMonitor() error {
@@ -194,7 +212,7 @@ func (o *FleetServer) startMonitor() error {
 		return err
 	}
 
-	return single.Single("fleet-monitor.pid", func() (*exec.Cmd, error) {
+	return command.StartBackgroundOnce("fleet-monitor", func() (*exec.Cmd, error) {
 		o.log.Infof("starting fleet monitor in background")
 		runCommand := fmt.Sprintf("%s helper fleet-server --workspaceid %s", self, "test")
 		args := []string{}
@@ -221,7 +239,7 @@ func prepareFleetServerLocation(userName string) (string, error) {
 	}
 
 	folder := filepath.Join(homeFolder, ".fleet-server")
-	err = os.MkdirAll(folder, 0755)
+	err = os.MkdirAll(folder, 0o755) // #nosec G301
 	if err != nil {
 		return "", err
 	}

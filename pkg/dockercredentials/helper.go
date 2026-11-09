@@ -11,10 +11,16 @@ import (
 	"time"
 
 	"github.com/docker/docker-credential-helpers/credentials"
+	"github.com/skevetter/devpod/pkg/config"
 )
 
 const (
-	credentialsTimeout = 5 * time.Second
+	// Obtaining credentials might require human interaction, e.g., to log in
+	// using an OAuth flow. Use a sufficiently long timeout to allow for that.
+	// (The credential request is forwarded to the host, where the credentials
+	// are either obtained from a Docker configuration file, or obtained from
+	// a credential helper on the host -- the latter can take a while.)
+	credentialsTimeout = 10 * time.Minute
 	logFileName        = "credential-helper.log"
 )
 
@@ -119,7 +125,7 @@ func (h *Helper) getFromCredentialsServer(serverURL string) (string, string, err
 }
 
 func (h *Helper) getFromWorkspaceServer(serverURL string) (string, string, error) {
-	workspacePort := os.Getenv("DEVPOD_WORKSPACE_CREDENTIALS_PORT")
+	workspacePort := os.Getenv(config.EnvWorkspaceCredentialsPort)
 	if workspacePort == "" {
 		return "", "", fmt.Errorf("no workspace port")
 	}
@@ -159,7 +165,7 @@ func sanitizeServerURL(serverURL string) string {
 func (h *Helper) logError(operation string, err error) {
 	logPath := filepath.Join(os.TempDir(), logFileName)
 	// #nosec G304 -- log file path is controlled and in temp directory
-	f, ferr := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	f, ferr := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if ferr != nil {
 		return
 	}

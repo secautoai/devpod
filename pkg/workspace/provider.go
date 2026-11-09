@@ -10,29 +10,18 @@ import (
 	"path/filepath"
 	"strings"
 
+	client2 "github.com/skevetter/devpod/pkg/client"
+	"github.com/skevetter/devpod/pkg/config"
+	"github.com/skevetter/devpod/pkg/download"
 	devpodhttp "github.com/skevetter/devpod/pkg/http"
+	"github.com/skevetter/devpod/pkg/platform"
 	"github.com/skevetter/devpod/pkg/provider"
 	"github.com/skevetter/devpod/pkg/types"
 	"github.com/skevetter/devpod/providers"
-
-	"github.com/skevetter/devpod/pkg/config"
-	"github.com/skevetter/devpod/pkg/download"
 	"github.com/skevetter/log"
 )
 
-const (
-	httpPrefix     = "http://"
-	httpsPrefix    = "https://"
-	githubPrefix   = "github.com/"
-	yamlExt        = ".yaml"
-	ymlExt         = ".yml"
-	dsStorePrefix  = ".DS_Store"
-	providerPrefix = "skevetter/devpod-provider-"
-)
-
-var (
-	ErrNoWorkspaceFound = errors.New("no workspace found")
-)
+var ErrNoWorkspaceFound = errors.New("no workspace found")
 
 type ProviderWithOptions struct {
 	Config *provider.ProviderConfig `json:"config,omitempty"`
@@ -62,13 +51,19 @@ func LoadProviders(
 		return nil, nil, fmt.Errorf("no default provider found")
 	}
 	if retProviders[defaultContext.DefaultProvider] == nil {
-		return nil, nil, fmt.Errorf("provider with name %s not found", defaultContext.DefaultProvider)
+		return nil, nil, fmt.Errorf(
+			"provider with name %s not found",
+			defaultContext.DefaultProvider,
+		)
 	}
 
 	return retProviders[defaultContext.DefaultProvider], retProviders, nil
 }
 
-func LoadAllProviders(devPodConfig *config.Config, log log.Logger) (map[string]*ProviderWithOptions, error) {
+func LoadAllProviders(
+	devPodConfig *config.Config,
+	log log.Logger,
+) (map[string]*ProviderWithOptions, error) {
 	retProviders := map[string]*ProviderWithOptions{}
 
 	loadConfiguredProviders(devPodConfig, retProviders, log)
@@ -80,7 +75,11 @@ func LoadAllProviders(devPodConfig *config.Config, log log.Logger) (map[string]*
 	return retProviders, nil
 }
 
-func FindProvider(devPodConfig *config.Config, name string, log log.Logger) (*ProviderWithOptions, error) {
+func FindProvider(
+	devPodConfig *config.Config,
+	name string,
+	log log.Logger,
+) (*ProviderWithOptions, error) {
 	retProviders, err := LoadAllProviders(devPodConfig, log)
 	if err != nil {
 		return nil, err
@@ -212,7 +211,11 @@ func CloneProvider(
 	return sourceProvider, nil
 }
 
-func ResolveProviderSource(devPodConfig *config.Config, providerName string, log log.Logger) (string, error) {
+func ResolveProviderSource(
+	devPodConfig *config.Config,
+	providerName string,
+	log log.Logger,
+) (string, error) {
 	providerConfig, err := FindProvider(devPodConfig, providerName, log)
 	if err != nil {
 		return "", fmt.Errorf("find provider: %w", err)
@@ -226,14 +229,24 @@ func ResolveProviderSource(devPodConfig *config.Config, providerName string, log
 	return source, nil
 }
 
-func ResolveProvider(providerSource string, log log.Logger) ([]byte, *provider.ProviderSource, error) {
+func ResolveProvider(
+	providerSource string,
+	log log.Logger,
+) ([]byte, *provider.ProviderSource, error) {
 	retSource := &provider.ProviderSource{Raw: strings.TrimSpace(providerSource)}
 
 	if out, ok := resolveInternalProvider(providerSource, retSource); ok {
 		return out, retSource, nil
 	}
 
-	if out, err := tryResolveURLProvider(providerSource, retSource, log); hasOutputOrError(out, err) {
+	if out, err := tryResolveURLProvider(
+		providerSource,
+		retSource,
+		log,
+	); hasOutputOrError(
+		out,
+		err,
+	) {
 		return out, retSource, err
 	}
 
@@ -246,14 +259,20 @@ func ResolveProvider(providerSource string, log log.Logger) ([]byte, *provider.P
 		return out, source, err
 	}
 
-	return nil, nil, fmt.Errorf("provider type not recognized: specify a local file, url, or github repository")
+	return nil, nil, fmt.Errorf(
+		"provider type not recognized: specify a local file, url, or github repository",
+	)
 }
 
 func hasOutputOrError(out []byte, err error) bool {
 	return out != nil || err != nil
 }
 
-func tryResolveURLProvider(providerSource string, retSource *provider.ProviderSource, log log.Logger) ([]byte, error) {
+func tryResolveURLProvider(
+	providerSource string,
+	retSource *provider.ProviderSource,
+	log log.Logger,
+) ([]byte, error) {
 	out, ok, err := resolveURLProvider(providerSource, retSource, log)
 	if !ok {
 		return nil, nil
@@ -261,7 +280,10 @@ func tryResolveURLProvider(providerSource string, retSource *provider.ProviderSo
 	return out, err
 }
 
-func tryResolveFileProvider(providerSource string, retSource *provider.ProviderSource) ([]byte, error) {
+func tryResolveFileProvider(
+	providerSource string,
+	retSource *provider.ProviderSource,
+) ([]byte, error) {
 	out, ok, err := resolveFileProvider(providerSource, retSource)
 	if !ok {
 		return nil, nil
@@ -269,8 +291,11 @@ func tryResolveFileProvider(providerSource string, retSource *provider.ProviderS
 	return out, err
 }
 
-func downloadProviderGithub(originalPath string, log log.Logger) ([]byte, *provider.ProviderSource, error) {
-	path := strings.TrimPrefix(originalPath, githubPrefix)
+func downloadProviderGithub(
+	originalPath string,
+	log log.Logger,
+) ([]byte, *provider.ProviderSource, error) {
+	path := strings.TrimPrefix(originalPath, "github.com/")
 
 	release := ""
 	index := strings.LastIndex(path, "@")
@@ -281,7 +306,7 @@ func downloadProviderGithub(originalPath string, log log.Logger) ([]byte, *provi
 
 	splitted := strings.Split(strings.TrimSuffix(path, "/"), "/")
 	if len(splitted) == 1 {
-		path = providerPrefix + path
+		path = config.RepoOwner + "/" + config.ProviderPrefix + path
 	} else if len(splitted) != 2 {
 		return nil, nil, fmt.Errorf(
 			"invalid github path format: expected 'owner/repo' or 'provider-name', got %q",
@@ -320,7 +345,10 @@ func loadConfiguredProviders(
 			continue
 		}
 
-		providerConfig, err := provider.LoadProviderConfig(devPodConfig.DefaultContext, providerName)
+		providerConfig, err := provider.LoadProviderConfig(
+			devPodConfig.DefaultContext,
+			providerName,
+		)
 		if err != nil {
 			log.Warnf("error loading provider %s: %v", providerName, err)
 			continue
@@ -333,7 +361,10 @@ func loadConfiguredProviders(
 	}
 }
 
-func loadUnconfiguredProviders(devPodConfig *config.Config, retProviders map[string]*ProviderWithOptions) error {
+func loadUnconfiguredProviders(
+	devPodConfig *config.Config,
+	retProviders map[string]*ProviderWithOptions,
+) error {
 	providerDir, err := provider.GetProvidersDir(devPodConfig.DefaultContext)
 	if err != nil {
 		return err
@@ -358,7 +389,8 @@ func loadUnconfiguredProviders(devPodConfig *config.Config, retProviders map[str
 }
 
 func shouldSkipEntry(entry os.DirEntry, retProviders map[string]*ProviderWithOptions) bool {
-	return retProviders[entry.Name()] != nil || !entry.IsDir() || strings.HasPrefix(entry.Name(), dsStorePrefix)
+	return retProviders[entry.Name()] != nil || !entry.IsDir() ||
+		strings.HasPrefix(entry.Name(), ".DS_Store")
 }
 
 func loadProviderEntry(
@@ -472,7 +504,10 @@ func checkProviderNotExists(devPodConfig *config.Config, providerName string) er
 }
 
 func downloadAndSaveProvider(p ProviderParams, providerConfig *provider.ProviderConfig) error {
-	binariesDir, err := provider.GetProviderBinariesDir(p.DevPodConfig.DefaultContext, providerConfig.Name)
+	binariesDir, err := provider.GetProviderBinariesDir(
+		p.DevPodConfig.DefaultContext,
+		providerConfig.Name,
+	)
 	if err != nil {
 		return fmt.Errorf("get binaries dir: %w", err)
 	}
@@ -482,7 +517,11 @@ func downloadAndSaveProvider(p ProviderParams, providerConfig *provider.Provider
 		return fmt.Errorf("get provider dir: %w", err)
 	}
 
-	if _, err := provider.DownloadBinaries(providerConfig.Binaries, binariesDir, p.Log); err != nil {
+	if _, err := provider.DownloadBinaries(
+		providerConfig.Binaries,
+		binariesDir,
+		p.Log,
+	); err != nil {
 		_ = os.RemoveAll(providerDir)
 		return fmt.Errorf("download binaries: %w", err)
 	}
@@ -521,7 +560,10 @@ func getProviderSource(src provider.ProviderSource, configName string) string {
 	}
 }
 
-func resolveInternalProvider(providerSource string, retSource *provider.ProviderSource) ([]byte, bool) {
+func resolveInternalProvider(
+	providerSource string,
+	retSource *provider.ProviderSource,
+) ([]byte, bool) {
 	internalProviders := providers.GetBuiltInProviders()
 	if internalProviders[providerSource] != "" {
 		retSource.Internal = true
@@ -535,7 +577,8 @@ func resolveURLProvider(
 	retSource *provider.ProviderSource,
 	log log.Logger,
 ) ([]byte, bool, error) {
-	if !strings.HasPrefix(providerSource, httpPrefix) && !strings.HasPrefix(providerSource, httpsPrefix) {
+	if !strings.HasPrefix(providerSource, "http://") &&
+		!strings.HasPrefix(providerSource, "https://") {
 		return nil, false, nil
 	}
 
@@ -548,8 +591,11 @@ func resolveURLProvider(
 	return out, true, nil
 }
 
-func resolveFileProvider(providerSource string, retSource *provider.ProviderSource) ([]byte, bool, error) {
-	if !strings.HasSuffix(providerSource, yamlExt) && !strings.HasSuffix(providerSource, ymlExt) {
+func resolveFileProvider(
+	providerSource string,
+	retSource *provider.ProviderSource,
+) ([]byte, bool, error) {
+	if !strings.HasSuffix(providerSource, ".yaml") && !strings.HasSuffix(providerSource, ".yml") {
 		return nil, false, nil
 	}
 
@@ -593,4 +639,164 @@ func buildGithubURL(path, release string) string {
 		return fmt.Sprintf("https://github.com/%s/releases/latest/download/provider.yaml", path)
 	}
 	return fmt.Sprintf("https://github.com/%s/releases/download/%s/provider.yaml", path, release)
+}
+
+// SwitchProvider updates the provider name for the given workspace with client locking.
+// It persists the new provider name before resolving the client so that FindProvider
+// can locate the already-renamed provider directory.
+func SwitchProvider(
+	ctx context.Context,
+	devPodConfig *config.Config,
+	workspace *provider.Workspace,
+	newProviderName string,
+) error {
+	oldProviderName := workspace.Provider.Name
+	workspace.Provider.Name = newProviderName
+
+	err := provider.SaveWorkspaceConfig(workspace)
+	if err != nil {
+		workspace.Provider.Name = oldProviderName
+		return fmt.Errorf("failed to save workspace config: %w", err)
+	}
+
+	revert := func() {
+		workspace.Provider.Name = oldProviderName
+		_ = provider.SaveWorkspaceConfig(workspace)
+	}
+
+	client, err := Get(ctx, GetOptions{
+		DevPodConfig: devPodConfig,
+		Args:         []string{workspace.ID},
+		Owner:        platform.AllOwnerFilter,
+		Log:          log.Default,
+	})
+	if err != nil {
+		revert()
+		return fmt.Errorf("failed to get client for workspace %s: %w", workspace.ID, err)
+	}
+
+	err = client.Lock(ctx)
+	if err != nil {
+		revert()
+		return fmt.Errorf("failed to lock workspace %s: %w", workspace.ID, err)
+	}
+
+	defer client.Unlock()
+	status, err := client.Status(ctx, client2.StatusOptions{ContainerStatus: true})
+	if err != nil {
+		revert()
+		return fmt.Errorf("failed to get status for workspace %s: %w", workspace.ID, err)
+	}
+
+	if status != client2.StatusStopped && status != client2.StatusNotFound {
+		if err := client.Stop(ctx, client2.StopOptions{}); err != nil {
+			revert()
+			return fmt.Errorf("failed to stop workspace %s before switching: %w", workspace.ID, err)
+		}
+	}
+
+	return nil
+}
+
+// MoveProvider renames a provider's directory on disk and migrates its state
+// in config.json. This preserves all options, initialized flag, and other state
+// that CloneProvider would lose.
+func MoveProvider(devPodConfig *config.Config, oldName, newName string) error {
+	oldDir, err := provider.GetProviderDir(devPodConfig.DefaultContext, oldName)
+	if err != nil {
+		return fmt.Errorf("get old provider dir: %w", err)
+	}
+
+	newDir, err := provider.GetProviderDir(devPodConfig.DefaultContext, newName)
+	if err != nil {
+		return fmt.Errorf("get new provider dir: %w", err)
+	}
+
+	if err := os.Rename(oldDir, newDir); err != nil {
+		return fmt.Errorf("rename provider dir: %w", err)
+	}
+
+	if err := updateProviderConfigName(devPodConfig, newName); err != nil {
+		_ = os.Rename(newDir, oldDir)
+		return err
+	}
+
+	if err := migrateProviderState(devPodConfig, oldName, newName); err != nil {
+		// Revert the config name before moving the directory back to avoid
+		// a corrupted provider.json (dir at old path but name field says new name).
+		_ = revertProviderConfigName(devPodConfig, oldName, newName)
+		_ = os.Rename(newDir, oldDir)
+		return err
+	}
+
+	return nil
+}
+
+// updateProviderConfigName loads the provider config from the new directory and
+// updates its Name field to match the new directory name.
+func updateProviderConfigName(devPodConfig *config.Config, newName string) error {
+	providerConfig, err := provider.LoadProviderConfig(devPodConfig.DefaultContext, newName)
+	if err != nil {
+		return fmt.Errorf("load provider config after move: %w", err)
+	}
+	providerConfig.Name = newName
+	if err := provider.SaveProviderConfig(devPodConfig.DefaultContext, providerConfig); err != nil {
+		return fmt.Errorf("save provider config: %w", err)
+	}
+	return nil
+}
+
+// revertProviderConfigName restores the provider config Name field back to
+// oldName. This is used during rollback when migrateProviderState fails after
+// updateProviderConfigName has already written the new name.
+func revertProviderConfigName(devPodConfig *config.Config, oldName, newName string) error {
+	providerConfig, err := provider.LoadProviderConfig(devPodConfig.DefaultContext, newName)
+	if err != nil {
+		return fmt.Errorf("load provider config for revert: %w", err)
+	}
+	providerConfig.Name = oldName
+	return provider.SaveProviderConfig(devPodConfig.DefaultContext, providerConfig)
+}
+
+// migrateProviderState moves the provider's entry in the config Providers map
+// from oldName to newName, rewrites any option values that embed the old
+// provider directory path, and persists the change.
+func migrateProviderState(devPodConfig *config.Config, oldName, newName string) error {
+	ctx := devPodConfig.Current()
+	if ctx.Providers[oldName] == nil {
+		return nil
+	}
+
+	ctx.Providers[newName] = ctx.Providers[oldName]
+	delete(ctx.Providers, oldName)
+
+	// Rewrite option values that reference the old provider directory.
+	oldDir, _ := provider.GetProviderDir(devPodConfig.DefaultContext, oldName)
+	newDir, _ := provider.GetProviderDir(devPodConfig.DefaultContext, newName)
+	if oldDir != "" && newDir != "" {
+		rewriteOptionPaths(ctx.Providers[newName].Options, oldDir, newDir)
+	}
+
+	if err := config.SaveConfig(devPodConfig); err != nil {
+		// Undo the map move and path rewrite on failure.
+		if oldDir != "" && newDir != "" {
+			rewriteOptionPaths(ctx.Providers[newName].Options, newDir, oldDir)
+		}
+		ctx.Providers[oldName] = ctx.Providers[newName]
+		delete(ctx.Providers, newName)
+		return fmt.Errorf("save config: %w", err)
+	}
+	return nil
+}
+
+// rewriteOptionPaths replaces occurrences of oldDir with newDir in every
+// option value. This keeps absolute paths (e.g. SSH key paths) valid after
+// a provider directory rename.
+func rewriteOptionPaths(opts map[string]config.OptionValue, oldDir, newDir string) {
+	for k, v := range opts {
+		if strings.Contains(v.Value, oldDir) {
+			v.Value = strings.ReplaceAll(v.Value, oldDir, newDir)
+			opts[k] = v
+		}
+	}
 }

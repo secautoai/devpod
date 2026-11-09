@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/cmd/flags"
 	"github.com/skevetter/devpod/pkg/agent"
 	agentdaemon "github.com/skevetter/devpod/pkg/daemon/agent"
@@ -14,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// DeleteCmd holds the cmd flags
+// DeleteCmd holds the cmd flags.
 type DeleteCmd struct {
 	*flags.GlobalFlags
 
@@ -24,7 +23,7 @@ type DeleteCmd struct {
 	WorkspaceInfo string
 }
 
-// NewDeleteCmd creates a new command
+// NewDeleteCmd creates a new command.
 func NewDeleteCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &DeleteCmd{
 		GlobalFlags: flags,
@@ -33,12 +32,14 @@ func NewDeleteCmd(flags *flags.GlobalFlags) *cobra.Command {
 		Use:   "delete",
 		Short: "Cleans up a workspace on the remote server",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return cmd.Run(context.Background())
+		RunE: func(cobraCmd *cobra.Command, _ []string) error {
+			return cmd.Run(cobraCmd.Context())
 		},
 	}
-	deleteCmd.Flags().BoolVar(&cmd.Container, "container", true, "If enabled, cleans up the DevPod container")
-	deleteCmd.Flags().BoolVar(&cmd.Daemon, "daemon", false, "If enabled, cleans up the DevPod daemon")
+	deleteCmd.Flags().
+		BoolVar(&cmd.Container, "container", true, "If enabled, cleans up the DevPod container")
+	deleteCmd.Flags().
+		BoolVar(&cmd.Daemon, "daemon", false, "If enabled, cleans up the DevPod daemon")
 
 	deleteCmd.Flags().StringVar(&cmd.WorkspaceInfo, "workspace-info", "", "The workspace info")
 	_ = deleteCmd.MarkFlagRequired("workspace-info")
@@ -47,7 +48,10 @@ func NewDeleteCmd(flags *flags.GlobalFlags) *cobra.Command {
 
 func (cmd *DeleteCmd) Run(ctx context.Context) error {
 	// get workspace
-	shouldExit, workspaceInfo, err := agent.WorkspaceInfo(cmd.WorkspaceInfo, log.Default.ErrorStreamOnly())
+	shouldExit, workspaceInfo, err := agent.WorkspaceInfo(
+		cmd.WorkspaceInfo,
+		log.Default.ErrorStreamOnly(),
+	)
 	if err != nil {
 		return fmt.Errorf("error parsing workspace info: %w", err)
 	} else if shouldExit {
@@ -75,10 +79,12 @@ func (cmd *DeleteCmd) Run(ctx context.Context) error {
 	return nil
 }
 
-func removeContainer(ctx context.Context, workspaceInfo *provider2.AgentWorkspaceInfo, log log.Logger) error {
-	log.WithFields(logrus.Fields{
-		"workspaceId": workspaceInfo.Workspace.ID,
-	}).Debug("removing DevPod container from server")
+func removeContainer(
+	ctx context.Context,
+	workspaceInfo *provider2.AgentWorkspaceInfo,
+	log log.Logger,
+) error {
+	log.Debugf("removing DevPod container from server: workspaceId=%s", workspaceInfo.Workspace.ID)
 	runner, err := CreateRunner(workspaceInfo, log)
 	if err != nil {
 		return err

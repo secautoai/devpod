@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/loft-sh/analytics-client/client"
 	"github.com/moby/term"
 	devpodclient "github.com/skevetter/devpod/pkg/client"
 	"github.com/skevetter/devpod/pkg/config"
+	"github.com/skevetter/devpod/pkg/telemetry/analytics"
 	"github.com/skevetter/devpod/pkg/version"
 	"github.com/skevetter/log"
 	"github.com/spf13/cobra"
@@ -26,23 +26,21 @@ const (
 	PanicSeverity   ErrorSeverityType = "panic"
 )
 
-const UIEnvVar = "DEVPOD_UI"
-
 var UIEventsExceptions []string = []string{
-	"devpod list",
-	"devpod status",
-	"devpod provider list",
-	"devpod pro list",
-	"devpod pro check-health",
-	"devpod pro check-update",
-	"devpod ide list",
-	"devpod ide use",
-	"devpod provider use",
-	"devpod version",
-	"devpod context options",
+	config.BinaryName + " list",
+	config.BinaryName + " status",
+	config.BinaryName + " provider list",
+	config.BinaryName + " pro list",
+	config.BinaryName + " pro check-health",
+	config.BinaryName + " pro check-update",
+	config.BinaryName + " ide list",
+	config.BinaryName + " ide use",
+	config.BinaryName + " provider use",
+	config.BinaryName + " version",
+	config.BinaryName + " context options",
 }
 
-// skip everything in pro mode
+// skip everything in pro mode.
 var CollectorCLI CLICollector = &noopCollector{}
 
 type CLICollector interface {
@@ -53,11 +51,11 @@ type CLICollector interface {
 	Flush()
 }
 
-// StartCLI starts collecting events and sending them to the backend from the CLI
+// StartCLI starts collecting events and sending them to the backend from the CLI.
 func StartCLI(devPodConfig *config.Config, cmd *cobra.Command) {
 	telemetryOpt := devPodConfig.ContextOption(config.ContextOptionTelemetry)
-	if telemetryOpt == "false" || version.GetVersion() == version.DevVersion ||
-		os.Getenv("DEVPOD_DISABLE_TELEMETRY") == "true" {
+	if telemetryOpt == config.BoolFalse || version.GetVersion() == version.DevVersion ||
+		os.Getenv(config.EnvDisableTelemetry) == config.BoolTrue {
 		return
 	}
 
@@ -73,7 +71,7 @@ func StartCLI(devPodConfig *config.Config, cmd *cobra.Command) {
 
 func newCLICollector(cmd *cobra.Command) (*cliCollector, error) {
 	defaultCollector := &cliCollector{
-		analyticsClient: client.NewClient(),
+		analyticsClient: analytics.NewClient(),
 		log:             log.Default.WithPrefix("telemetry"),
 		cmd:             cmd,
 	}
@@ -82,7 +80,7 @@ func newCLICollector(cmd *cobra.Command) (*cliCollector, error) {
 }
 
 type cliCollector struct {
-	analyticsClient client.Client
+	analyticsClient analytics.Client
 	cmd             *cobra.Command
 	client          devpodclient.BaseWorkspaceClient
 
@@ -103,7 +101,7 @@ func (d *cliCollector) RecordCLI(err error) {
 		return
 	}
 	cmd := d.cmd.CommandPath()
-	isUI := os.Getenv(UIEnvVar) == "true"
+	isUI := os.Getenv(config.EnvUI) == config.BoolTrue
 	// Ignore certain commands triggered by DevPod Desktop
 	if isUI {
 		if slices.Contains(UIEventsExceptions, cmd) {
@@ -154,15 +152,15 @@ func (d *cliCollector) RecordCLI(err error) {
 			isPro = true
 		}
 	}
-	eventType := "devpod_cli"
+	eventType := config.BinaryName + "_cli"
 	if isPro {
-		eventType = "devpod_cli_runner"
+		eventType = config.BinaryName + "_cli_runner"
 	}
 
 	// build the event and record
 	eventPropertiesRaw, _ := json.Marshal(eventProperties)
 	userPropertiesRaw, _ := json.Marshal(userProperties)
-	d.analyticsClient.RecordEvent(client.Event{
+	d.analyticsClient.RecordEvent(analytics.Event{
 		"event": {
 			"type":       eventType,
 			"machine_id": GetMachineID(),
@@ -177,7 +175,7 @@ func (d *cliCollector) RecordCLI(err error) {
 	})
 }
 
-// isCIEnvironment looks up a couple of well-known CI env vars
+// isCIEnvironment looks up a couple of well-known CI env vars.
 func isCIEnvironment() bool {
 	ciIndicators := []string{
 		"CI",                     // Generic CI variable
@@ -198,7 +196,7 @@ func isCIEnvironment() bool {
 }
 
 // isInteractiveShell checks if the current shell is in interactive mode or not.
-// Can be combined with `isCi` to narrow down usage
+// Can be combined with `isCi` to narrow down usage.
 func isInteractiveShell() bool {
 	return term.IsTerminal(os.Stdin.Fd())
 }

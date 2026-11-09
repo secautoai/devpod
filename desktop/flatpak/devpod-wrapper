@@ -1,0 +1,69 @@
+#!/bin/sh
+
+APP_ID="sh.loft.devpod"
+APP_BIN="/app/bin/devpod-bin"
+
+remove_leftover_wrapper() {
+    script_path="$1"
+    case "$script_path" in
+        */*) ;;
+        *) script_path="$(command -v "$script_path" 2>/dev/null || true)" ;;
+    esac
+
+    [ -n "$script_path" ] && rm -i -- "$script_path"
+}
+
+run_from_host() {
+    flatpak run --command=devpod "$APP_ID" "$@"
+    result="$?"
+
+    if [ "$result" -gt 0 ]; then
+        if ! command -v flatpak >/dev/null 2>&1; then
+            echo "flatpak is not available; cannot verify DevPod installation"
+        elif ! flatpak info "$APP_ID" >/dev/null 2>&1; then
+            echo "Devpod flatpak is not installed anymore"
+            remove_leftover_wrapper "$0"
+        fi
+    fi
+
+    exit "$result"
+}
+
+sync_host_binary() {
+    data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+    target="${data_home}/devpod"
+
+    /usr/bin/mkdir -p "$data_home"
+
+    if [ ! -e "$target" ] || ! /usr/bin/cmp --silent "$APP_BIN" "$target"; then
+        /usr/bin/rm -f "$target"
+        /usr/bin/cp "$APP_BIN" "$target"
+    fi
+}
+
+main() {
+    if [ -z "${FLATPAK_ID}" ]; then
+        run_from_host "$@"
+    fi
+
+    sync_host_binary
+    data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+
+    # Start with env flags, then --host, binary, then the original CLI args.
+    set -- "--host" "${data_home}/devpod" "$@"
+    value="${DEVPOD_ADDITIONAL_ENV_VARS:-}"
+    if [ -n "$value" ]; then
+        old_ifs="$IFS"
+        IFS=','
+        for entry in $value; do
+            case "$entry" in
+                *=*) set -- "--env=${entry}" "$@" ;;
+            esac
+        done
+        IFS="$old_ifs"
+    fi
+
+    exec /usr/bin/flatpak-spawn "$@"
+}
+
+main "$@"

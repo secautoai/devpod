@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/pkg/compose"
+	pkgconfig "github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/devcontainer/build"
 	"github.com/skevetter/devpod/pkg/devcontainer/buildkit"
 	"github.com/skevetter/devpod/pkg/devcontainer/config"
@@ -43,13 +43,9 @@ func (r *runner) build(
 	}
 
 	// Add extra devcontainer config if provided
-	if options.ExtraDevContainerPath != "" {
+	if extraConfig := options.ExtraDevContainerConfig; extraConfig != nil {
 		if buildInfo.ImageMetadata == nil {
 			buildInfo.ImageMetadata = &config.ImageMetadataConfig{}
-		}
-		extraConfig, err := config.ParseDevContainerJSONFile(options.ExtraDevContainerPath)
-		if err != nil {
-			return nil, err
 		}
 		config.AddConfigToImageMetadata(extraConfig, buildInfo.ImageMetadata)
 	}
@@ -70,7 +66,14 @@ func (r *runner) extendImage(
 	}
 
 	// get extend image build info
-	extendedBuildInfo, err := feature.GetExtendedBuildInfo(substitutionContext, imageBuildInfo, imageBase, parsedConfig, r.Log, options.ForceBuild)
+	extendedBuildInfo, err := feature.GetExtendedBuildInfo(
+		substitutionContext,
+		imageBuildInfo,
+		imageBase,
+		parsedConfig,
+		r.Log,
+		options.ForceBuild,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("get extended build info: %w", err)
 	}
@@ -87,7 +90,16 @@ func (r *runner) extendImage(
 	}
 
 	// build the image
-	return r.buildImage(ctx, parsedConfig, substitutionContext, imageBuildInfo, extendedBuildInfo, "", "", options)
+	return r.buildImage(
+		ctx,
+		parsedConfig,
+		substitutionContext,
+		imageBuildInfo,
+		extendedBuildInfo,
+		"",
+		"",
+		options,
+	)
 }
 
 func (r *runner) buildAndExtendImage(
@@ -111,7 +123,10 @@ func (r *runner) buildAndExtendImage(
 	if parsedConfig.Config.GetTarget() != "" {
 		imageBase = parsedConfig.Config.GetTarget()
 	} else {
-		lastTargetName, modifiedDockerfileContents, err := dockerfile.EnsureFinalStageName(string(dockerFileContent), config.DockerfileDefaultTarget)
+		lastTargetName, modifiedDockerfileContents, err := dockerfile.EnsureFinalStageName(
+			string(dockerFileContent),
+			config.DockerfileDefaultTarget,
+		)
 		if err != nil {
 			return nil, err
 		} else if modifiedDockerfileContents != "" {
@@ -122,47 +137,69 @@ func (r *runner) buildAndExtendImage(
 	}
 
 	// get image build info
-	imageBuildInfo, err := r.getImageBuildInfoFromDockerfile(substitutionContext, string(dockerFileContent), parsedConfig.Config.GetArgs(), parsedConfig.Config.GetTarget())
+	imageBuildInfo, err := r.getImageBuildInfoFromDockerfile(
+		substitutionContext,
+		string(dockerFileContent),
+		parsedConfig.Config.GetArgs(),
+		parsedConfig.Config.GetTarget(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("get image build info: %w", err)
 	}
 
 	// get extend image build info
-	extendedBuildInfo, err := feature.GetExtendedBuildInfo(substitutionContext, imageBuildInfo, imageBase, parsedConfig, r.Log, options.ForceBuild)
+	extendedBuildInfo, err := feature.GetExtendedBuildInfo(
+		substitutionContext,
+		imageBuildInfo,
+		imageBase,
+		parsedConfig,
+		r.Log,
+		options.ForceBuild,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("get extended build info: %w", err)
 	}
 
 	// build the image
-	return r.buildImage(ctx, parsedConfig, substitutionContext, imageBuildInfo, extendedBuildInfo, dockerFilePath, string(dockerFileContent), options)
+	return r.buildImage(
+		ctx,
+		parsedConfig,
+		substitutionContext,
+		imageBuildInfo,
+		extendedBuildInfo,
+		dockerFilePath,
+		string(dockerFileContent),
+		options,
+	)
 }
 
 func (r *runner) getDockerfilePath(parsedConfig *config.DevContainerConfig) (string, error) {
 	if parsedConfig.Origin == "" {
-		return "", fmt.Errorf("config origin path is empty, cannot resolve dockerfile location without knowing where devcontainer config was loaded from")
+		return "", fmt.Errorf(
+			"config origin path is empty, cannot resolve dockerfile location without knowing " +
+				"where devcontainer config was loaded from",
+		)
 	}
 
 	dockerfilePathFromConfig := parsedConfig.GetDockerfile()
 	var dockerfilePath string
 	if filepath.IsAbs(dockerfilePathFromConfig) {
-		r.Log.WithFields(logrus.Fields{
-			"dockerfilePath": dockerfilePathFromConfig,
-			"pathType":       "absolute",
-		}).Debug("using absolute dockerfile path")
+		r.Log.Debugf(
+			"using absolute dockerfile path: dockerfilePath=%s, pathType=absolute",
+			dockerfilePathFromConfig,
+		)
 		dockerfilePath = dockerfilePathFromConfig
 	} else {
 		configFileDir := filepath.Dir(parsedConfig.Origin)
 		dockerfilePath = filepath.Join(configFileDir, dockerfilePathFromConfig)
-		r.Log.WithFields(logrus.Fields{
-			"dockerfilePath": dockerfilePathFromConfig,
-			"configDir":      configFileDir,
-			"pathType":       "relative",
-		}).Debug("using relative dockerfile path")
+		r.Log.Debugf(
+			"using relative dockerfile path: dockerfilePath=%s, configDir=%s, pathType=relative",
+			dockerfilePathFromConfig,
+			configFileDir,
+		)
 	}
 
-	r.Log.WithFields(logrus.Fields{
-		"finalPath": dockerfilePath,
-	}).Debug("resolved dockerfile path")
+	r.Log.Debugf("resolved dockerfile path: finalPath=%s", dockerfilePath)
 
 	_, err := os.Stat(dockerfilePath)
 	if err != nil {
@@ -172,7 +209,11 @@ func (r *runner) getDockerfilePath(parsedConfig *config.DevContainerConfig) (str
 	return dockerfilePath, nil
 }
 
-func (r *runner) getImageBuildInfoFromImage(ctx context.Context, substitutionContext *config.SubstitutionContext, imageName string) (*config.ImageBuildInfo, error) {
+func (r *runner) getImageBuildInfoFromImage(
+	ctx context.Context,
+	substitutionContext *config.SubstitutionContext,
+	imageName string,
+) (*config.ImageBuildInfo, error) {
 	imageDetails, err := r.inspectImage(ctx, imageName)
 	if err != nil {
 		return nil, err
@@ -195,7 +236,12 @@ func (r *runner) getImageBuildInfoFromImage(ctx context.Context, substitutionCon
 	}, nil
 }
 
-func (r *runner) getImageBuildInfoFromDockerfile(substitutionContext *config.SubstitutionContext, dockerFileContent string, buildArgs map[string]string, target string) (*config.ImageBuildInfo, error) {
+func (r *runner) getImageBuildInfoFromDockerfile(
+	substitutionContext *config.SubstitutionContext,
+	dockerFileContent string,
+	buildArgs map[string]string,
+	target string,
+) (*config.ImageBuildInfo, error) {
 	parsedDockerfile, err := dockerfile.Parse(dockerFileContent)
 	if err != nil {
 		return nil, fmt.Errorf("parse dockerfile: %w", err)
@@ -220,7 +266,11 @@ func (r *runner) getImageBuildInfoFromDockerfile(substitutionContext *config.Sub
 	}
 
 	// find user
-	user := parsedDockerfile.FindUserStatement(buildArgs, config.ListToObject(imageDetails.Config.Env), target)
+	user := parsedDockerfile.FindUserStatement(
+		buildArgs,
+		config.ListToObject(imageDetails.Config.Env),
+		target,
+	)
 	if user == "" {
 		user = imageDetails.Config.User
 	}
@@ -276,9 +326,15 @@ func (r *runner) buildImage(
 		if options.Repository != "" {
 			options.PrebuildRepositories = append(options.PrebuildRepositories, options.Repository)
 		}
-		options.PrebuildRepositories = append(options.PrebuildRepositories, devPodCustomizations.PrebuildRepository...)
+		options.PrebuildRepositories = append(
+			options.PrebuildRepositories,
+			devPodCustomizations.PrebuildRepository...)
 
-		r.Log.Debugf("Try to find prebuild image %s in repositories %s", prebuildHash, strings.Join(options.PrebuildRepositories, ","))
+		r.Log.Debugf(
+			"Try to find prebuild image %s in repositories %s",
+			prebuildHash,
+			strings.Join(options.PrebuildRepositories, ","),
+		)
 		for _, prebuildRepo := range options.PrebuildRepositories {
 			prebuildImage := prebuildRepo + ":" + prebuildHash
 			img, err := image.GetImageForArch(ctx, prebuildImage, targetArch)
@@ -329,11 +385,21 @@ func (r *runner) buildImage(
 	// This should only be OSS kubernetes as of March 06, 2025.
 	dockerDriver, ok := r.Driver.(driver.DockerDriver)
 	if options.ForceDockerless || !ok {
-		if r.WorkspaceConfig.Agent.Dockerless.Disabled == "true" {
-			return nil, fmt.Errorf("cannot build devcontainer because driver is non-docker and dockerless fallback is disabled")
+		if r.WorkspaceConfig.Agent.Dockerless.Disabled == pkgconfig.BoolTrue {
+			return nil, fmt.Errorf(
+				"cannot build devcontainer because driver is non-docker and dockerless fallback is disabled",
+			)
 		}
 
-		return dockerlessFallback(r.LocalWorkspaceFolder, substitutionContext.ContainerWorkspaceFolder, parsedConfig, buildInfo, extendedBuildInfo, dockerfileContent, options)
+		return dockerlessFallback(
+			r.LocalWorkspaceFolder,
+			substitutionContext.ContainerWorkspaceFolder,
+			parsedConfig,
+			buildInfo,
+			extendedBuildInfo,
+			dockerfileContent,
+			options,
+		)
 	}
 
 	return dockerDriver.BuildDevContainer(ctx, driver.BuildRequest{
@@ -388,7 +454,10 @@ func (r *runner) buildDevImageCompose(
 	service := parsedConfig.Config.Service
 	composeService, err := project.GetService(service)
 	if err != nil {
-		return nil, fmt.Errorf("service '%s' configured in devcontainer.json not found in Docker Compose configuration", service)
+		return nil, fmt.Errorf(
+			"service '%s' configured in devcontainer.json not found in Docker Compose configuration",
+			service,
+		)
 	}
 
 	originalImageName := composeService.Image
@@ -399,12 +468,20 @@ func (r *runner) buildDevImageCompose(
 		}
 	}
 
-	overrideBuildImageName, _, imageMetadata, _, err := r.buildAndExtendDockerCompose(ctx, parsedConfig, substitutionContext, project, composeHelper, &composeService, composeGlobalArgs)
+	extendResult, err := r.buildAndExtendDockerCompose(
+		ctx,
+		parsedConfig,
+		substitutionContext,
+		project,
+		composeHelper,
+		&composeService,
+		composeGlobalArgs,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("build and extend docker-compose: %w", err)
 	}
 
-	currentImageName := overrideBuildImageName
+	currentImageName := extendResult.buildImageName
 	if currentImageName == "" {
 		currentImageName = originalImageName
 	}
@@ -424,8 +501,8 @@ func (r *runner) buildDevImageCompose(
 
 	return &config.BuildInfo{
 		ImageDetails:  imageDetails,
-		ImageMetadata: imageMetadata,
-		ImageName:     overrideBuildImageName,
+		ImageMetadata: extendResult.imageMetadata,
+		ImageName:     extendResult.buildImageName,
 		PrebuildHash:  imageTag,
 		RegistryCache: options.RegistryCache,
 		Tags:          options.Tag,
@@ -443,7 +520,8 @@ func dockerlessFallback(
 ) (*config.BuildInfo, error) {
 	contextPath := config.GetContextPath(parsedConfig.Config)
 	devPodInternalFolder := filepath.Join(contextPath, config.DevPodContextFeatureFolder)
-	err := os.MkdirAll(devPodInternalFolder, 0755)
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err := os.MkdirAll(devPodInternalFolder, 0o755)
 	if err != nil {
 		return nil, fmt.Errorf("create devpod folder: %w", err)
 	}
@@ -454,14 +532,19 @@ func dockerlessFallback(
 		return nil, fmt.Errorf("rewrite dockerfile: %w", err)
 	} else if devPodDockerfile == "" {
 		devPodDockerfile = filepath.Join(devPodInternalFolder, "Dockerfile-without-features")
-		err = os.WriteFile(devPodDockerfile, []byte(dockerfileContent), 0600)
+		err = os.WriteFile(devPodDockerfile, []byte(dockerfileContent), 0o600)
 		if err != nil {
 			return nil, fmt.Errorf("write devpod dockerfile: %w", err)
 		}
 	}
 
 	// get build args and target
-	containerContext, containerDockerfile := getContainerContextAndDockerfile(localWorkspaceFolder, containerWorkspaceFolder, contextPath, devPodDockerfile)
+	containerContext, containerDockerfile := getContainerContextAndDockerfile(
+		localWorkspaceFolder,
+		containerWorkspaceFolder,
+		contextPath,
+		devPodDockerfile,
+	)
 	buildArgs, target := build.GetBuildArgsAndTarget(parsedConfig, extendedBuildInfo)
 	return &config.BuildInfo{
 		ImageMetadata: extendedBuildInfo.MetadataConfig,
@@ -479,10 +562,18 @@ func dockerlessFallback(
 	}, nil
 }
 
-func getContainerContextAndDockerfile(localWorkspaceFolder, containerWorkspaceFolder, contextPath, devPodDockerfile string) (string, string) {
+func getContainerContextAndDockerfile(
+	localWorkspaceFolder, containerWorkspaceFolder, contextPath, devPodDockerfile string,
+) (string, string) {
 	prefixPath := path.Clean(filepath.ToSlash(localWorkspaceFolder))
-	containerContext := path.Join(containerWorkspaceFolder, strings.TrimPrefix(path.Clean(filepath.ToSlash(contextPath)), prefixPath))
-	containerDockerfile := path.Join(containerWorkspaceFolder, strings.TrimPrefix(path.Clean(filepath.ToSlash(devPodDockerfile)), prefixPath))
+	containerContext := path.Join(
+		containerWorkspaceFolder,
+		strings.TrimPrefix(path.Clean(filepath.ToSlash(contextPath)), prefixPath),
+	)
+	containerDockerfile := path.Join(
+		containerWorkspaceFolder,
+		strings.TrimPrefix(path.Clean(filepath.ToSlash(devPodDockerfile)), prefixPath),
+	)
 	return containerContext, containerDockerfile
 }
 

@@ -1,16 +1,15 @@
 package provider
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/loft-sh/api/v4/pkg/devpod"
+	"github.com/skevetter/api/pkg/devsy"
 	"github.com/skevetter/devpod/pkg/config"
 	devcontainerconfig "github.com/skevetter/devpod/pkg/devcontainer/config"
 	"github.com/skevetter/devpod/pkg/git"
 	"github.com/skevetter/devpod/pkg/types"
+	"github.com/skevetter/devpod/pkg/util"
 )
 
 var (
@@ -204,7 +203,7 @@ type AgentWorkspaceInfo struct {
 
 type CLIOptions struct {
 	// Platform are the platform options
-	Platform devpod.PlatformOptions `json:"platformOptions"`
+	Platform devsy.PlatformOptions `json:"platformOptions"`
 
 	// up options
 	ID                          string            `json:"id,omitempty"`
@@ -228,11 +227,16 @@ type CLIOptions struct {
 	GitSSHSigningKey            string            `json:"gitSshSigningKey,omitempty"`
 	SSHAuthSockID               string            `json:"sshAuthSockID,omitempty"` // ID to use when looking for SSH_AUTH_SOCK, defaults to a new random ID if not set (only used for browser IDEs)
 	StrictHostKeyChecking       bool              `json:"strictHostKeyChecking,omitempty"`
+	AdditionalFeatures          string            `json:"additionalFeatures,omitempty"`
+	Mounts                      []string          `json:"mounts,omitempty"`
 	ExtraDevContainerPath       string            `json:"extraDevContainerPath,omitempty"`
 	User                        string            `json:"user,omitempty"`
 	Userns                      string            `json:"userns,omitempty"`
 	UidMap                      []string          `json:"uidMap,omitempty"`
 	GidMap                      []string          `json:"gidMap,omitempty"`
+
+	// ExtraDevContainerConfig carries the parsed local file to remote providers.
+	ExtraDevContainerConfig *devcontainerconfig.DevContainerConfig `json:"extraDevContainerConfig,omitempty"`
 
 	// build options
 	// Repository specifies the container registry repository to push the built image to (e.g., ghcr.io/user/image).
@@ -338,11 +342,7 @@ func ParseWorkspaceSource(source string) *WorkspaceSource {
 			GitSubPath:     gitSubdir,
 		}
 	} else if after, ok := strings.CutPrefix(source, WorkspaceSourceLocal); ok {
-		// Expand home directory references (~) in the path.
-		if strings.HasPrefix(after, "~/") {
-			home, _ := os.UserHomeDir()
-			after = filepath.Join(home, after[2:])
-		}
+		after = util.ExpandTilde(after)
 		return &WorkspaceSource{
 			LocalFolder: after,
 		}

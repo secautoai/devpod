@@ -14,14 +14,14 @@ type ShellCommand struct {
 	Login   bool
 }
 
-// NewShellCmd creates a new command
+// NewShellCmd creates a new command.
 func NewShellCmd() *cobra.Command {
 	cmd := &ShellCommand{}
 	shellCmd := &cobra.Command{
 		Use:   "sh",
 		Short: "Executes a command in a shell",
-		RunE: func(_ *cobra.Command, args []string) error {
-			return cmd.Run(context.Background(), args)
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			return cmd.Run(cobraCmd.Context(), args)
 		},
 	}
 

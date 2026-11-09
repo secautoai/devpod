@@ -6,8 +6,24 @@ tasks:
     cmd: go mod tidy
 
   cli:lint:
-    desc: run devpod linters
-    cmd: golangci-lint run
+    desc: lint go code using golangci-lint
+    cmd: golangci-lint run ./...
+
+  cli:lint:new:
+    desc: lint go code changed since origin/main using golangci-lint
+    cmd: golangci-lint run --new-from-rev="$(git merge-base HEAD origin/main)" ./... # or use --new-from-rev=HEAD~1 for changes since last push or --new for changes since last commit
+
+  cli:lint:fix:
+    desc: fix lint issues using golangci-lint
+    cmd: golangci-lint run --fix ./...
+
+  cli:format:
+    desc: format go code using golangci-lint formatters
+    cmd: golangci-lint fmt ./...
+
+  cli:act:lint:
+    desc: run devpod linters using act
+    cmd: act workflow_dispatch -W .github/workflows/lint.yml
 
   cli:build:
     desc: build devpod CLI
@@ -50,8 +66,8 @@ tasks:
     dir: pkg/agent/tunnel
     cmd: |
       # sudo apt install protobuf-compiler
-      go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-      go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+      go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
+      go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.4
       protoc -I . tunnel.proto --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative
 
   cli:test:

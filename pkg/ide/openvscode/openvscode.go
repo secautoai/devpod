@@ -16,7 +16,6 @@ import (
 	devpodhttp "github.com/skevetter/devpod/pkg/http"
 	"github.com/skevetter/devpod/pkg/ide"
 	"github.com/skevetter/devpod/pkg/ide/vscode"
-	"github.com/skevetter/devpod/pkg/single"
 	"github.com/skevetter/devpod/pkg/util"
 	"github.com/skevetter/log"
 )
@@ -47,7 +46,7 @@ var Options = ide.Options{
 	},
 	BindAddressOption: {
 		Name:        BindAddressOption,
-		Description: "The address to bind VSCode web to locally. E.g. 0.0.0.0:12345",
+		Description: "The address to bind VSCode web to locally, e.g. 0.0.0.0:12345",
 		Default:     "",
 	},
 	VersionOption: {
@@ -76,7 +75,14 @@ var Options = ide.Options{
 
 const DefaultVSCodePort = 10800
 
-func NewOpenVSCodeServer(extensions []string, settings string, userName string, host, port string, values map[string]config.OptionValue, log log.Logger) *OpenVSCodeServer {
+func NewOpenVSCodeServer(
+	extensions []string,
+	settings string,
+	userName string,
+	host, port string,
+	values map[string]config.OptionValue,
+	log log.Logger,
+) *OpenVSCodeServer {
 	return &OpenVSCodeServer{
 		values:     values,
 		extensions: extensions,
@@ -201,14 +207,9 @@ func (o *OpenVSCodeServer) installExtensions() error {
 		cmd.Stderr = out
 		err = cmd.Run()
 		if err != nil {
-			o.log.WithFields(logrus.Fields{
-				"extension": extension,
-				"error":     err,
-			}).Error("failed installing extension")
+			o.log.Errorf("failed installing extension: extension=%s, error=%v", extension, err)
 		} else {
-			o.log.WithFields(logrus.Fields{
-				"extension": extension,
-			}).Info("installed extension")
+			o.log.Infof("installed extension: extension=%s", extension)
 		}
 	}
 
@@ -226,12 +227,13 @@ func (o *OpenVSCodeServer) installSettings() error {
 	}
 
 	settingsDir := filepath.Join(location, "data", "Machine")
-	err = os.MkdirAll(settingsDir, 0755)
+	// #nosec G301,G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err = os.MkdirAll(settingsDir, 0o755)
 	if err != nil {
 		return err
 	}
 
-	err = os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(o.settings), 0600)
+	err = os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(o.settings), 0o600)
 	if err != nil {
 		return err
 	}
@@ -263,9 +265,14 @@ func (o *OpenVSCodeServer) Start() error {
 		return fmt.Errorf("find binary: %w", err)
 	}
 
-	return single.Single("openvscode.pid", func() (*exec.Cmd, error) {
+	return command.StartBackgroundOnce("openvscode", func() (*exec.Cmd, error) {
 		o.log.Infof("Starting openvscode in background...")
-		runCommand := fmt.Sprintf("%s server-local --without-connection-token --host '%s' --port '%s'", binaryPath, o.host, o.port)
+		runCommand := fmt.Sprintf(
+			"%s server-local --without-connection-token --host '%s' --port '%s'",
+			binaryPath,
+			o.host,
+			o.port,
+		)
 		args := []string{}
 		if o.userName != "" {
 			args = append(args, "su", o.userName, "-c", runCommand)
@@ -291,7 +298,8 @@ func prepareOpenVSCodeServerLocation(userName string) (string, error) {
 	}
 
 	folder := filepath.Join(homeFolder, ".openvscode-server")
-	err = os.MkdirAll(folder, 0755)
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err = os.MkdirAll(folder, 0o755)
 	if err != nil {
 		return "", err
 	}

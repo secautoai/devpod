@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/util"
 	"github.com/skevetter/log"
 	"github.com/skevetter/log/scanner"
@@ -48,7 +49,7 @@ func ConfigureSSHConfig(params SSHConfigParams) error {
 
 	newFile, err := addHost(addHostParams{
 		path:       targetPath,
-		host:       params.Workspace + "." + "devpod",
+		host:       params.Workspace + config.SSHHostSuffix,
 		user:       params.User,
 		context:    params.Context,
 		workspace:  params.Workspace,
@@ -99,7 +100,7 @@ func addHost(params addHostParams) (string, error) {
 	return addHostSection(newConfig, execPath, params)
 }
 
-// proxyCommandBuilder builds SSH ProxyCommand strings
+// proxyCommandBuilder builds SSH ProxyCommand strings.
 type proxyCommandBuilder struct {
 	baseCommand string
 	options     []string
@@ -107,7 +108,13 @@ type proxyCommandBuilder struct {
 
 func newProxyCommandBuilder(execPath, context, user, workspace string) *proxyCommandBuilder {
 	return &proxyCommandBuilder{
-		baseCommand: fmt.Sprintf("\"%s\" ssh --stdio --context %s --user %s %s", execPath, context, user, workspace),
+		baseCommand: fmt.Sprintf(
+			"\"%s\" ssh --stdio --context %s --user %s %s",
+			execPath,
+			context,
+			user,
+			workspace,
+		),
 	}
 }
 
@@ -139,7 +146,7 @@ func (b *proxyCommandBuilder) build() string {
 	return fmt.Sprintf("  ProxyCommand %s %s", b.baseCommand, strings.Join(b.options, " "))
 }
 
-// sshConfigBuilder builds SSH config entries
+// sshConfigBuilder builds SSH config entries.
 type sshConfigBuilder struct {
 	lines []string
 }
@@ -190,7 +197,7 @@ func (b *sshConfigBuilder) build() []string {
 	return b.lines
 }
 
-// buildProxyCommand creates the ProxyCommand string
+// buildProxyCommand creates the ProxyCommand string.
 func buildProxyCommand(execPath string, params addHostParams) string {
 	if params.command != "" {
 		return fmt.Sprintf("  ProxyCommand \"%s\"", params.command)
@@ -203,7 +210,7 @@ func buildProxyCommand(execPath string, params addHostParams) string {
 		build()
 }
 
-// buildSSHConfigLines creates the SSH config entry lines
+// buildSSHConfigLines creates the SSH config entry lines.
 func buildSSHConfigLines(params addHostParams, proxyCmd string) []string {
 	return newSSHConfigBuilder(params.host).
 		addSSHOptions(params.provider).
@@ -212,7 +219,27 @@ func buildSSHConfigLines(params addHostParams, proxyCmd string) []string {
 		build()
 }
 
-// findInsertPosition finds where to insert new SSH config entry
+func sshConfigKeyword(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return ""
+	}
+
+	if index := strings.IndexAny(trimmed, " \t="); index >= 0 {
+		return trimmed[:index]
+	}
+
+	return trimmed
+}
+
+func isSSHSectionStart(line string) bool {
+	keyword := sshConfigKeyword(line)
+
+	return strings.EqualFold(keyword, "host") ||
+		strings.EqualFold(keyword, "match")
+}
+
+// findInsertPosition finds where to insert new SSH config entry.
 func findInsertPosition(config string) (int, []string, error) {
 	lineNumber := 0
 	found := false
@@ -222,13 +249,14 @@ func findInsertPosition(config string) (int, []string, error) {
 	scanner := bufio.NewScanner(strings.NewReader(config))
 	for scanner.Scan() {
 		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
 
-		if strings.HasPrefix(strings.TrimSpace(line), "Host") && !found {
+		if isSSHSectionStart(line) && !found {
 			found = true
 			lineNumber = max(lineNumber-commentLines, 0)
 		}
 
-		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+		if strings.HasPrefix(trimmed, "#") {
 			commentLines++
 		} else {
 			commentLines = 0
@@ -248,7 +276,7 @@ func findInsertPosition(config string) (int, []string, error) {
 	return lineNumber, lines, nil
 }
 
-// mergeSSHConfig inserts new lines into existing config
+// mergeSSHConfig inserts new lines into existing config.
 func mergeSSHConfig(lines, newLines []string, position int) string {
 	merged := slices.Insert(lines, position, newLines...)
 
@@ -272,7 +300,11 @@ func addHostSection(config, execPath string, params addHostParams) (string, erro
 	return mergeSSHConfig(lines, newLines, position), nil
 }
 
-func GetUser(workspaceID string, sshConfigPath string, sshConfigIncludePath string) (string, error) {
+func GetUser(
+	workspaceID string,
+	sshConfigPath string,
+	sshConfigIncludePath string,
+) (string, error) {
 	path, err := ResolveSSHConfigPath(sshConfigPath)
 	if err != nil {
 		return "", fmt.Errorf("invalid ssh config path: %w", err)
@@ -289,14 +321,18 @@ func GetUser(workspaceID string, sshConfigPath string, sshConfigIncludePath stri
 	}
 
 	user := "root"
-	_, err = transformHostSection(targetPath, workspaceID+"."+"devpod", func(line string) string {
-		splitted := strings.Split(strings.ToLower(strings.TrimSpace(line)), " ")
-		if len(splitted) == 2 && splitted[0] == "user" {
-			user = strings.Trim(splitted[1], "\"")
-		}
+	_, err = transformHostSection(
+		targetPath,
+		workspaceID+config.SSHHostSuffix,
+		func(line string) string {
+			splitted := strings.Split(strings.ToLower(strings.TrimSpace(line)), " ")
+			if len(splitted) == 2 && splitted[0] == "user" {
+				user = strings.Trim(splitted[1], "\"")
+			}
 
-		return line
-	})
+			return line
+		},
+	)
 	if err != nil {
 		return "", err
 	}
@@ -304,7 +340,12 @@ func GetUser(workspaceID string, sshConfigPath string, sshConfigIncludePath stri
 	return user, nil
 }
 
-func RemoveFromConfig(workspaceID string, sshConfigPath string, sshConfigIncludePath string, log log.Logger) error {
+func RemoveFromConfig(
+	workspaceID string,
+	sshConfigPath string,
+	sshConfigIncludePath string,
+	log log.Logger,
+) error {
 	configLock.Lock()
 	defer configLock.Unlock()
 
@@ -313,7 +354,7 @@ func RemoveFromConfig(workspaceID string, sshConfigPath string, sshConfigInclude
 		targetPath = sshConfigIncludePath
 	}
 
-	newFile, err := removeFromConfig(targetPath, workspaceID+"."+"devpod")
+	newFile, err := removeFromConfig(targetPath, workspaceID+config.SSHHostSuffix)
 	if err != nil {
 		return fmt.Errorf("parse ssh config: %w", err)
 	}
@@ -322,12 +363,13 @@ func RemoveFromConfig(workspaceID string, sshConfigPath string, sshConfigInclude
 }
 
 func writeSSHConfig(path, content string, log log.Logger) error {
-	err := os.MkdirAll(filepath.Dir(path), 0755)
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err := os.MkdirAll(filepath.Dir(path), 0o755)
 	if err != nil {
 		log.Debugf("error creating ssh directory: %v", err)
 	}
 
-	err = os.WriteFile(path, []byte(content), 0600)
+	err = os.WriteFile(path, []byte(content), 0o600)
 	if err != nil {
 		return fmt.Errorf("write ssh config: %w", err)
 	}

@@ -52,11 +52,22 @@ func StdioClient(reader io.Reader, writer io.WriteCloser, exitOnClose bool) (*ss
 	return StdioClientFromKeyBytesWithUser(nil, reader, writer, "", exitOnClose)
 }
 
-func StdioClientWithUser(reader io.Reader, writer io.WriteCloser, user string, exitOnClose bool) (*ssh.Client, error) {
+func StdioClientWithUser(
+	reader io.Reader,
+	writer io.WriteCloser,
+	user string,
+	exitOnClose bool,
+) (*ssh.Client, error) {
 	return StdioClientFromKeyBytesWithUser(nil, reader, writer, user, exitOnClose)
 }
 
-func StdioClientFromKeyBytesWithUser(keyBytes []byte, reader io.Reader, writer io.WriteCloser, user string, exitOnClose bool) (*ssh.Client, error) {
+func StdioClientFromKeyBytesWithUser(
+	keyBytes []byte,
+	reader io.Reader,
+	writer io.WriteCloser,
+	user string,
+	exitOnClose bool,
+) (*ssh.Client, error) {
 	conn := stdio.NewStdioStream(reader, writer, exitOnClose, 0)
 	clientConfig, err := ConfigFromKeyBytes(keyBytes)
 	if err != nil {
@@ -91,7 +102,6 @@ func ConfigFromKeyBytes(keyBytes []byte) (*ssh.ClientConfig, error) {
 }
 
 type RunOptions struct {
-	Context context.Context
 	Client  *ssh.Client
 	Command string
 	Stdin   io.Reader
@@ -118,9 +128,6 @@ func (e *ExitError) Unwrap() error {
 }
 
 func (opts *RunOptions) validate() error {
-	if opts.Context == nil {
-		return fmt.Errorf("context is required")
-	}
 	if opts.Client == nil {
 		return fmt.Errorf("SSH client is required")
 	}
@@ -130,7 +137,7 @@ func (opts *RunOptions) validate() error {
 	return nil
 }
 
-func Run(opts RunOptions) error {
+func Run(ctx context.Context, opts RunOptions) error {
 	if err := opts.validate(); err != nil {
 		return err
 	}
@@ -146,7 +153,7 @@ func Run(opts RunOptions) error {
 		_ = sess.Setenv(k, v) // Ignore errors - command should work without env vars
 	}
 
-	if err := setupContextCancellation(opts.Context, sess); err != nil {
+	if err := setupContextCancellation(ctx, sess); err != nil {
 		return err
 	}
 
@@ -156,7 +163,7 @@ func Run(opts RunOptions) error {
 
 	err = sess.Run(opts.Command)
 	if err != nil {
-		return handleRunError(err, opts.Command)
+		return handleRunError(ctx, err, opts.Command)
 	}
 
 	return nil
@@ -178,7 +185,13 @@ func setupContextCancellation(ctx context.Context, sess *ssh.Session) error {
 	return nil
 }
 
-func handleRunError(err error, command string) error {
+func handleRunError(ctx context.Context, err error, command string) error {
+	// If the context was cancelled, EOF and other errors are expected
+	// from the session tearing down.
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	// Check for exit errors with exit codes
 	var exitErr *ssh.ExitError
 	if errors.As(err, &exitErr) {
@@ -202,8 +215,8 @@ func handleRunError(err error, command string) error {
 
 	// Provide context for common errors
 	if errors.Is(err, io.EOF) {
-		return fmt.Errorf("SSH session closed unexpectedly (EOF) while running: %s", command)
+		return fmt.Errorf("SSH session closed unexpectedly while running %s: %w", command, err)
 	}
 
-	return fmt.Errorf("SSH command failed: %w (command: %s)", err, command)
+	return fmt.Errorf("SSH command failed while running %s: %w", command, err)
 }

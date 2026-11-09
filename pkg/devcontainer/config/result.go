@@ -3,9 +3,11 @@ package config
 import (
 	"maps"
 	"slices"
+
+	pkgconfig "github.com/skevetter/devpod/pkg/config"
 )
 
-const UserLabel = "devpod.user"
+const UserLabel = pkgconfig.BinaryName + ".user"
 
 type Result struct {
 	DevContainerConfigWithPath *DevContainerConfigWithPath `json:"DevContainerConfigWithPath"`
@@ -42,7 +44,7 @@ func GetMounts(result *Result) []*Mount {
 //
 // Per DevContainer specification (https://containers.dev/implementors/json_reference/):
 // "remoteUser: Overrides the user that devcontainer.json supporting services tools / runs as in the container...
-// Defaults to the user the container as a whole is running as (often root)."
+// Defaults to the user the container as a whole is running as (often root).".
 func GetRemoteUser(result *Result) string {
 	if result == nil {
 		return "root"
@@ -66,12 +68,13 @@ func GetRemoteUser(result *Result) string {
 }
 
 func GetDevPodCustomizations(parsedConfig *DevContainerConfig) *DevPodCustomizations {
-	if parsedConfig.Customizations == nil || parsedConfig.Customizations["devpod"] == nil {
+	if parsedConfig.Customizations == nil ||
+		parsedConfig.Customizations[pkgconfig.BinaryName] == nil {
 		return &DevPodCustomizations{}
 	}
 
 	devPod := &DevPodCustomizations{}
-	err := Convert(parsedConfig.Customizations["devpod"], devPod)
+	err := Convert(parsedConfig.Customizations[pkgconfig.BinaryName], devPod)
 	if err != nil {
 		return &DevPodCustomizations{}
 	}
@@ -100,7 +103,10 @@ func GetVSCodeConfiguration(mergedConfig *MergedDevContainerConfig) *VSCodeCusto
 				continue
 			}
 
-			retVSCodeCustomizations.Extensions = append(retVSCodeCustomizations.Extensions, extension)
+			retVSCodeCustomizations.Extensions = append(
+				retVSCodeCustomizations.Extensions,
+				extension,
+			)
 		}
 
 		maps.Copy(retVSCodeCustomizations.Settings, vsCode.Settings)

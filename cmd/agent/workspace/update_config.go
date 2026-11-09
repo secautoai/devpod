@@ -9,14 +9,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// UpdateConfigCmd holds the cmd flags
+// UpdateConfigCmd holds the cmd flags.
 type UpdateConfigCmd struct {
 	*flags.GlobalFlags
 
 	WorkspaceInfo string
 }
 
-// NewUpdateConfigCmd creates a new command
+// NewUpdateConfigCmd creates a new command.
 func NewUpdateConfigCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &UpdateConfigCmd{
 		GlobalFlags: flags,
@@ -25,11 +25,12 @@ func NewUpdateConfigCmd(flags *flags.GlobalFlags) *cobra.Command {
 		Use:   "update-config",
 		Short: "Updates the workspace config",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return cmd.Run(context.Background())
+		RunE: func(cobraCmd *cobra.Command, _ []string) error {
+			return cmd.Run(cobraCmd.Context())
 		},
 	}
-	updateConfigCmd.Flags().StringVar(&cmd.WorkspaceInfo, "workspace-info", "", "The workspace info")
+	updateConfigCmd.Flags().
+		StringVar(&cmd.WorkspaceInfo, "workspace-info", "", "The workspace info")
 	_ = updateConfigCmd.MarkFlagRequired("workspace-info")
 	return updateConfigCmd
 }

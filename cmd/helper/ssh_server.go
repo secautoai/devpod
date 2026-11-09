@@ -17,7 +17,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// SSHServerCmd holds the ssh server cmd flags
+// SSHServerCmd holds the ssh server cmd flags.
 type SSHServerCmd struct {
 	*flags.GlobalFlags
 
@@ -29,29 +29,36 @@ type SSHServerCmd struct {
 	Workdir          string
 }
 
-// NewSSHServerCmd creates a new ssh command
+// NewSSHServerCmd creates a new ssh command.
 func NewSSHServerCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &SSHServerCmd{
 		GlobalFlags: flags,
 	}
 	sshCmd := &cobra.Command{
 		Use:   "ssh-server",
-		Short: "Starts a new ssh server",
+		Short: "Starts a new SSH server",
 		Args:  cobra.NoArgs,
 		RunE:  cmd.Run,
 	}
 
-	sshCmd.Flags().StringVar(&cmd.Address, "address", fmt.Sprintf("0.0.0.0:%d", helperssh.DefaultPort), "Address to listen to")
-	sshCmd.Flags().BoolVar(&cmd.Stdio, "stdio", false, "Will listen on stdout and stdin instead of an address")
-	sshCmd.Flags().BoolVar(&cmd.TrackActivity, "track-activity", false, "If enabled will write the last activity time to a file")
-	sshCmd.Flags().StringVar(&cmd.ReuseSSHAuthSock, "reuse-ssh-auth-sock", "", "If set, the SSH_AUTH_SOCK is expected to already be available in the workspace (under /tmp using the key provided) and the connection reuses this instead of creating a new one")
+	sshCmd.Flags().
+		StringVar(&cmd.Address, "address", fmt.Sprintf("0.0.0.0:%d", helperssh.DefaultPort), "Address to listen to")
+	sshCmd.Flags().
+		BoolVar(&cmd.Stdio, "stdio", false, "Will listen on stdout and stdin instead of an address")
+	sshCmd.Flags().
+		BoolVar(&cmd.TrackActivity, "track-activity", false, "If enabled will write the last activity time to a file")
+	sshCmd.Flags().
+		StringVar(&cmd.ReuseSSHAuthSock, "reuse-ssh-auth-sock", "",
+			"If set, the SSH_AUTH_SOCK is expected to already be available in the workspace "+
+				"(under /tmp using the key provided) and the connection reuses this instead of creating a new one")
 	_ = sshCmd.Flags().MarkHidden("reuse-ssh-auth-sock")
 	sshCmd.Flags().StringVar(&cmd.Token, "token", "", "Base64 encoded token to use")
-	sshCmd.Flags().StringVar(&cmd.Workdir, "workdir", "", "Directory where commands will run on the host")
+	sshCmd.Flags().
+		StringVar(&cmd.Workdir, "workdir", "", "Directory where commands will run on the host")
 	return sshCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *SSHServerCmd) Run(_ *cobra.Command, _ []string) error {
 	var (
 		keys    []ssh.PublicKey
@@ -91,7 +98,14 @@ func (cmd *SSHServerCmd) Run(_ *cobra.Command, _ []string) error {
 	}
 
 	// start the server
-	server, err := helperssh.NewServer(cmd.Address, hostKey, keys, cmd.Workdir, cmd.ReuseSSHAuthSock, log.Default.ErrorStreamOnly())
+	server, err := helperssh.NewServer(
+		cmd.Address,
+		hostKey,
+		keys,
+		cmd.Workdir,
+		cmd.ReuseSSHAuthSock,
+		log.Default.ErrorStreamOnly(),
+	)
 	if err != nil {
 		return err
 	}
@@ -102,13 +116,21 @@ func (cmd *SSHServerCmd) Run(_ *cobra.Command, _ []string) error {
 			go func() {
 				_, err = os.Stat(agent.ContainerActivityFile)
 				if err != nil {
-					err = os.WriteFile(agent.ContainerActivityFile, nil, 0o777)
-					if err != nil {
-						fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
+					if err := os.WriteFile(
+						agent.ContainerActivityFile,
+						nil,
+						0o666,
+					); err != nil { // #nosec G306
+						fmt.Fprintf(os.Stderr, "error writing file: %v\n", err)
 						return
 					}
-
-					_ = os.Chmod(agent.ContainerActivityFile, 0o777)
+					if err := os.Chmod(
+						agent.ContainerActivityFile,
+						0o666,
+					); err != nil { // #nosec G302
+						fmt.Fprintf(os.Stderr, "error setting file permissions: %v\n", err)
+						return
+					}
 				}
 
 				for {

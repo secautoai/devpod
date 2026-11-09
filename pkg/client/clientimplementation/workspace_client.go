@@ -29,7 +29,13 @@ import (
 	"github.com/skevetter/log"
 )
 
-func NewWorkspaceClient(devPodConfig *config.Config, prov *provider.ProviderConfig, workspace *provider.Workspace, machine *provider.Machine, log log.Logger) (client.WorkspaceClient, error) {
+func NewWorkspaceClient(
+	devPodConfig *config.Config,
+	prov *provider.ProviderConfig,
+	workspace *provider.Workspace,
+	machine *provider.Machine,
+	log log.Logger,
+) (client.WorkspaceClient, error) {
 	if workspace.Machine.ID != "" && machine == nil {
 		return nil, fmt.Errorf("workspace machine is not found")
 	} else if prov.IsMachineProvider() && workspace.Machine.ID == "" {
@@ -49,6 +55,7 @@ type workspaceClient struct {
 	m sync.Mutex
 
 	workspaceLockOnce sync.Once
+	workspaceLockErr  error
 	workspaceLock     *flock.Flock
 	machineLock       *flock.Flock
 
@@ -81,7 +88,12 @@ func (s *workspaceClient) AgentLocal() bool {
 	s.m.Lock()
 	defer s.m.Unlock()
 
-	return options.ResolveAgentConfig(s.devPodConfig, s.config, s.workspace, s.machine).Local == "true"
+	return options.ResolveAgentConfig(
+		s.devPodConfig,
+		s.config,
+		s.workspace,
+		s.machine,
+	).Local == config.BoolTrue
 }
 
 func (s *workspaceClient) AgentPath() string {
@@ -102,7 +114,11 @@ func (s *workspaceClient) Context() string {
 	return s.workspace.Context
 }
 
-func (s *workspaceClient) RefreshOptions(ctx context.Context, userOptionsRaw []string, reconfigure bool) error {
+func (s *workspaceClient) RefreshOptions(
+	ctx context.Context,
+	userOptionsRaw []string,
+	reconfigure bool,
+) error {
 	s.m.Lock()
 	defer s.m.Unlock()
 
@@ -116,7 +132,14 @@ func (s *workspaceClient) RefreshOptions(ctx context.Context, userOptionsRaw []s
 			return nil
 		}
 
-		machine, err := options.ResolveAndSaveOptionsMachine(ctx, s.devPodConfig, s.config, s.machine, userOptions, s.log)
+		machine, err := options.ResolveAndSaveOptionsMachine(
+			ctx,
+			s.devPodConfig,
+			s.config,
+			s.machine,
+			userOptions,
+			s.log,
+		)
 		if err != nil {
 			return err
 		}
@@ -125,19 +148,22 @@ func (s *workspaceClient) RefreshOptions(ctx context.Context, userOptionsRaw []s
 		return nil
 	}
 
-	workspace, err := options.ResolveAndSaveOptionsWorkspace(ctx, s.devPodConfig, s.config, s.workspace, userOptions, s.log)
+	workspace, err := options.ResolveAndSaveOptionsWorkspace(
+		ctx,
+		s.devPodConfig,
+		s.config,
+		s.workspace,
+		userOptions,
+		s.log,
+	)
 	if err != nil {
-		s.log.WithFields(logrus.Fields{
-			"error": err,
-		}).Error("failed to resolve and save options workspace")
+		s.log.Errorf("failed to resolve and save options workspace: error=%v", err)
 		return err
 	}
 
 	if workspace != nil {
 		s.workspace = workspace
-		s.log.WithFields(logrus.Fields{
-			"workspaceId": s.workspace.ID,
-		}).Debug("refreshed workspace options")
+		s.log.Debugf("refreshed workspace options: workspaceId=%s", s.workspace.ID)
 	} else {
 		s.log.Debug("workspace is nil; not updating workspace options")
 	}
@@ -148,24 +174,28 @@ func (s *workspaceClient) AgentInjectGitCredentials(cliOptions provider.CLIOptio
 	s.m.Lock()
 	defer s.m.Unlock()
 
-	return s.agentInfo(cliOptions).Agent.InjectGitCredentials == "true"
+	return s.agentInfo(cliOptions).Agent.InjectGitCredentials == config.BoolTrue
 }
 
 func (s *workspaceClient) AgentInjectDockerCredentials(cliOptions provider.CLIOptions) bool {
 	s.m.Lock()
 	defer s.m.Unlock()
 
-	return s.agentInfo(cliOptions).Agent.InjectDockerCredentials == "true"
+	return s.agentInfo(cliOptions).Agent.InjectDockerCredentials == config.BoolTrue
 }
 
-func (s *workspaceClient) AgentInfo(cliOptions provider.CLIOptions) (string, *provider.AgentWorkspaceInfo, error) {
+func (s *workspaceClient) AgentInfo(
+	cliOptions provider.CLIOptions,
+) (string, *provider.AgentWorkspaceInfo, error) {
 	s.m.Lock()
 	defer s.m.Unlock()
 
 	return s.compressedAgentInfo(cliOptions)
 }
 
-func (s *workspaceClient) compressedAgentInfo(cliOptions provider.CLIOptions) (string, *provider.AgentWorkspaceInfo, error) {
+func (s *workspaceClient) compressedAgentInfo(
+	cliOptions provider.CLIOptions,
+) (string, *provider.AgentWorkspaceInfo, error) {
 	agentInfo := s.agentInfo(cliOptions)
 
 	// marshal config
@@ -189,7 +219,7 @@ func (s *workspaceClient) agentInfo(cliOptions provider.CLIOptions) *provider.Ag
 	if s.workspace != nil {
 		result, err := provider.LoadWorkspaceResult(s.workspace.Context, s.workspace.ID)
 		if err != nil {
-			s.log.WithFields(logrus.Fields{"error": err}).Debug("error loading workspace result")
+			s.log.Debugf("error loading workspace result: error=%v", err)
 		} else if result != nil {
 			lastDevContainerConfig = result.DevContainerConfigWithPath
 		}
@@ -204,8 +234,13 @@ func (s *workspaceClient) agentInfo(cliOptions provider.CLIOptions) *provider.Ag
 		Machine:                s.machine,
 		LastDevContainerConfig: lastDevContainerConfig,
 		CLIOptions:             cliOptions,
-		Agent:                  options.ResolveAgentConfig(s.devPodConfig, s.config, s.workspace, s.machine),
-		Options:                s.devPodConfig.ProviderOptions(s.Provider()),
+		Agent: options.ResolveAgentConfig(
+			s.devPodConfig,
+			s.config,
+			s.workspace,
+			s.machine,
+		),
+		Options: s.devPodConfig.ProviderOptions(s.Provider()),
 	}
 
 	// if we are running platform mode
@@ -217,7 +252,8 @@ func (s *workspaceClient) agentInfo(cliOptions provider.CLIOptions) *provider.Ag
 	// we don't send any provider options if proxy because these could contain
 	// sensitive information and we don't want to allow privileged containers that
 	// have access to the host to save these.
-	if agentInfo.Agent.Driver != provider.CustomDriver && (cliOptions.Platform.Enabled || cliOptions.DisableDaemon) {
+	if agentInfo.Agent.Driver != provider.CustomDriver &&
+		(cliOptions.Platform.Enabled || cliOptions.DisableDaemon) {
 		agentInfo.Options = map[string]config.OptionValue{}
 		agentInfo.Workspace = provider.CloneWorkspace(agentInfo.Workspace)
 		agentInfo.Workspace.Provider.Options = map[string]config.OptionValue{}
@@ -228,7 +264,10 @@ func (s *workspaceClient) agentInfo(cliOptions provider.CLIOptions) *provider.Ag
 	}
 
 	// Get the timeout from the context options
-	agentInfo.InjectTimeout = config.ParseTimeOption(s.devPodConfig, config.ContextOptionAgentInjectTimeout)
+	agentInfo.InjectTimeout = config.ParseTimeOption(
+		s.devPodConfig,
+		config.ContextOptionAgentInjectTimeout,
+	)
 
 	// Set registry cache from context option
 	agentInfo.RegistryCache = s.devPodConfig.ContextOption(config.ContextOptionRegistryCache)
@@ -236,30 +275,10 @@ func (s *workspaceClient) agentInfo(cliOptions provider.CLIOptions) *provider.Ag
 	return agentInfo
 }
 
-func (s *workspaceClient) initLock() {
-	s.workspaceLockOnce.Do(func() {
-		s.m.Lock()
-		defer s.m.Unlock()
-
-		// get locks dir
-		workspaceLocksDir, err := provider.GetLocksDir(s.workspace.Context)
-		if err != nil {
-			panic(fmt.Errorf("get workspaces dir: %w", err))
-		}
-		_ = os.MkdirAll(workspaceLocksDir, 0777)
-
-		// create workspace lock
-		s.workspaceLock = flock.New(filepath.Join(workspaceLocksDir, s.workspace.ID+".workspace.lock"))
-
-		// create machine lock
-		if s.machine != nil {
-			s.machineLock = flock.New(filepath.Join(workspaceLocksDir, s.machine.ID+".machine.lock"))
-		}
-	})
-}
-
 func (s *workspaceClient) Lock(ctx context.Context) error {
-	s.initLock()
+	if err := s.initLock(); err != nil {
+		return fmt.Errorf("initializing lock: %w", err)
+	}
 
 	// try to lock workspace
 	s.log.Debug("acquire workspace lock")
@@ -283,24 +302,25 @@ func (s *workspaceClient) Lock(ctx context.Context) error {
 }
 
 func (s *workspaceClient) Unlock() {
-	s.initLock()
+	if err := s.initLock(); err != nil {
+		s.log.Warnf("initializing lock: %v", err)
+		return
+	}
 
-	// try to unlock machine
 	if s.machineLock != nil {
-		err := s.machineLock.Unlock()
-		if err != nil {
-			s.log.WithFields(logrus.Fields{"error": err}).Warn("error unlocking machine")
+		if err := s.machineLock.Unlock(); err != nil {
+			s.log.Warnf("error unlocking machine: %v", err)
 		}
 	}
 
-	// try to unlock workspace
-	err := s.workspaceLock.Unlock()
-	if err != nil {
-		s.log.WithFields(logrus.Fields{"error": err}).Warn("error unlocking workspace")
+	if s.workspaceLock != nil {
+		if err := s.workspaceLock.Unlock(); err != nil {
+			s.log.Warnf("error unlocking workspace: %v", err)
+		}
 	}
 }
 
-func (s *workspaceClient) Create(ctx context.Context, options client.CreateOptions) error {
+func (s *workspaceClient) Create(ctx context.Context) error {
 	s.m.Lock()
 	defer s.m.Unlock()
 
@@ -329,7 +349,7 @@ func (s *workspaceClient) Create(ctx context.Context, options client.CreateOptio
 	}
 
 	// create the machine
-	return machineClient.Create(ctx, client.CreateOptions{})
+	return machineClient.Create(ctx)
 }
 
 func (s *workspaceClient) Delete(ctx context.Context, opt client.DeleteOptions) error {
@@ -368,7 +388,11 @@ func (s *workspaceClient) Delete(ctx context.Context, opt client.DeleteOptions) 
 			if err != nil {
 				return fmt.Errorf("agent info")
 			}
-			command := fmt.Sprintf("'%s' agent workspace delete --workspace-info '%s'", info.Agent.Path, compressed)
+			command := fmt.Sprintf(
+				"'%s' agent workspace delete --workspace-info '%s'",
+				info.Agent.Path,
+				compressed,
+			)
 			err = RunCommandWithBinaries(CommandOptions{
 				Ctx:       ctx,
 				Name:      "command",
@@ -392,7 +416,7 @@ func (s *workspaceClient) Delete(ctx context.Context, opt client.DeleteOptions) 
 				}
 
 				if !errors.Is(err, context.DeadlineExceeded) {
-					s.log.WithFields(logrus.Fields{"error": err}).Error("error deleting container")
+					s.log.Errorf("error deleting container: error=%v", err)
 				}
 			}
 		}
@@ -441,7 +465,7 @@ func (s *workspaceClient) isMachineRunning(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-func (s *workspaceClient) Start(ctx context.Context, options client.StartOptions) error {
+func (s *workspaceClient) Start(ctx context.Context) error {
 	s.m.Lock()
 	defer s.m.Unlock()
 
@@ -454,7 +478,7 @@ func (s *workspaceClient) Start(ctx context.Context, options client.StartOptions
 		return err
 	}
 
-	return machineClient.Start(ctx, options)
+	return machineClient.Start(ctx)
 }
 
 func (s *workspaceClient) Stop(ctx context.Context, opt client.StopOptions) error {
@@ -470,7 +494,11 @@ func (s *workspaceClient) Stop(ctx context.Context, opt client.StopOptions) erro
 		if err != nil {
 			return fmt.Errorf("agent info")
 		}
-		command := fmt.Sprintf("'%s' agent workspace stop --workspace-info '%s'", info.Agent.Path, compressed)
+		command := fmt.Sprintf(
+			"'%s' agent workspace stop --workspace-info '%s'",
+			info.Agent.Path,
+			compressed,
+		)
 		err = RunCommandWithBinaries(CommandOptions{
 			Ctx:       ctx,
 			Name:      "command",
@@ -504,7 +532,10 @@ func (s *workspaceClient) Stop(ctx context.Context, opt client.StopOptions) erro
 	return machineClient.Stop(ctx, opt)
 }
 
-func (s *workspaceClient) Command(ctx context.Context, commandOptions client.CommandOptions) (err error) {
+func (s *workspaceClient) Command(
+	ctx context.Context,
+	commandOptions client.CommandOptions,
+) (err error) {
 	environ, err := s.buildEnvironment(commandOptions.Command)
 	if err != nil {
 		return err
@@ -521,7 +552,10 @@ func (s *workspaceClient) Command(ctx context.Context, commandOptions client.Com
 	})
 }
 
-func (s *workspaceClient) Status(ctx context.Context, options client.StatusOptions) (client.Status, error) {
+func (s *workspaceClient) Status(
+	ctx context.Context,
+	options client.StatusOptions,
+) (client.Status, error) {
 	s.m.Lock()
 	defer s.m.Unlock()
 
@@ -571,6 +605,58 @@ func (s *workspaceClient) Status(ctx context.Context, options client.StatusOptio
 	return client.StatusNotFound, nil
 }
 
+func (s *workspaceClient) Describe(ctx context.Context) (string, error) {
+	s.m.Lock()
+	defer s.m.Unlock()
+
+	// check if provider has 'describe' command
+	if s.isMachineProvider() && len(s.config.Exec.Describe) > 0 {
+		if s.machine == nil {
+			return client.DescriptionNotFound, nil
+		}
+
+		machineClient, err := NewMachineClient(s.devPodConfig, s.config, s.machine, s.log)
+		if err != nil {
+			return client.DescriptionNotFound, err
+		}
+
+		return machineClient.Describe(ctx)
+	}
+
+	return client.DescriptionNotFound, nil
+}
+
+func (s *workspaceClient) initLock() error {
+	s.workspaceLockOnce.Do(func() {
+		s.m.Lock()
+		defer s.m.Unlock()
+
+		// get locks dir
+		workspaceLocksDir, err := provider.GetLocksDir(s.workspace.Context)
+		if err != nil {
+			s.workspaceLockErr = fmt.Errorf("get workspaces dir: %w", err)
+			return
+		}
+		if err = os.MkdirAll(workspaceLocksDir, 0o755); err != nil { // #nosec G301
+			s.workspaceLockErr = fmt.Errorf("create workspace locks dir: %w", err)
+			return
+		}
+
+		// create workspace lock
+		s.workspaceLock = flock.New(
+			filepath.Join(workspaceLocksDir, s.workspace.ID+".workspace.lock"),
+		)
+
+		// create machine lock
+		if s.machine != nil {
+			s.machineLock = flock.New(
+				filepath.Join(workspaceLocksDir, s.machine.ID+".machine.lock"),
+			)
+		}
+	})
+	return s.workspaceLockErr
+}
+
 func (s *workspaceClient) getContainerStatus(ctx context.Context) (client.Status, error) {
 	stdout := &bytes.Buffer{}
 	buf := &bytes.Buffer{}
@@ -578,7 +664,11 @@ func (s *workspaceClient) getContainerStatus(ctx context.Context) (client.Status
 	if err != nil {
 		return "", fmt.Errorf("get agent info")
 	}
-	command := fmt.Sprintf("'%s' agent workspace status --workspace-info '%s'", info.Agent.Path, compressed)
+	command := fmt.Sprintf(
+		"'%s' agent workspace status --workspace-info '%s'",
+		info.Agent.Path,
+		compressed,
+	)
 	err = RunCommandWithBinaries(CommandOptions{
 		Ctx:       ctx,
 		Name:      "command",
@@ -597,19 +687,28 @@ func (s *workspaceClient) getContainerStatus(ctx context.Context) (client.Status
 		Log:    s.log.ErrorStreamOnly(),
 	})
 	if err != nil {
-		return client.StatusNotFound, fmt.Errorf("error retrieving container status: %s%w", buf.String(), err)
+		return client.StatusNotFound, fmt.Errorf(
+			"error retrieving container status: %s%w",
+			buf.String(),
+			err,
+		)
 	}
 
 	parsed, err := client.ParseStatus(stdout.String())
 	if err != nil {
-		return client.StatusNotFound, fmt.Errorf("error parsing container status: %s%w", buf.String(), err)
+		return client.StatusNotFound, fmt.Errorf(
+			"error parsing container status: %s%w",
+			buf.String(),
+			err,
+		)
 	}
 
-	s.log.WithFields(logrus.Fields{
-		"stdout": buf.String(),
-		"stderr": stdout.String(),
-		"parsed": parsed,
-	}).Debug("container status command output")
+	s.log.Debugf(
+		"container status command output: stdout=%s, stderr=%s, parsed=%v",
+		stdout.String(),
+		buf.String(),
+		parsed,
+	)
 	return parsed, nil
 }
 
@@ -692,12 +791,19 @@ func RunCommand(opts RunCommandOptions) error {
 
 	// Add debug env var if logger provided and in debug mode
 	if opts.Log != nil && opts.Log.GetLevel() == logrus.DebugLevel {
-		opts.Environ = append(opts.Environ, DevPodDebug+"=true")
+		opts.Environ = append(opts.Environ, config.EnvDebug+"="+config.BoolTrue)
 	}
 
 	// use shell if command length is equal 1
 	if len(opts.Command) == 1 {
-		return shell.RunEmulatedShell(opts.Ctx, opts.Command[0], opts.Stdin, opts.Stdout, opts.Stderr, opts.Environ)
+		return shell.RunEmulatedShell(
+			opts.Ctx,
+			opts.Command[0],
+			opts.Stdin,
+			opts.Stdout,
+			opts.Stderr,
+			opts.Environ,
+		)
 	}
 
 	// run command
@@ -776,7 +882,7 @@ const (
 	logThreshold = 10 * time.Second
 )
 
-// StartWait waits for the workspace to be ready, optionally creating/starting it
+// StartWait waits for the workspace to be ready, optionally creating/starting it.
 func StartWait(
 	ctx context.Context,
 	workspaceClient client.WorkspaceClient,
@@ -818,9 +924,13 @@ func handleBusyStatus(startWaiting *time.Time, log log.Logger) bool {
 	return true
 }
 
-func handleStoppedStatus(ctx context.Context, workspaceClient client.WorkspaceClient, create bool) error {
+func handleStoppedStatus(
+	ctx context.Context,
+	workspaceClient client.WorkspaceClient,
+	create bool,
+) error {
 	if create {
-		err := workspaceClient.Start(ctx, client.StartOptions{})
+		err := workspaceClient.Start(ctx)
 		if err != nil {
 			return fmt.Errorf("start workspace: %w", err)
 		}
@@ -829,9 +939,13 @@ func handleStoppedStatus(ctx context.Context, workspaceClient client.WorkspaceCl
 	return fmt.Errorf("workspace is stopped")
 }
 
-func handleNotFoundStatus(ctx context.Context, workspaceClient client.WorkspaceClient, create bool) error {
+func handleNotFoundStatus(
+	ctx context.Context,
+	workspaceClient client.WorkspaceClient,
+	create bool,
+) error {
 	if create {
-		err := workspaceClient.Create(ctx, client.CreateOptions{})
+		err := workspaceClient.Create(ctx)
 		if err != nil {
 			return err
 		}
@@ -840,7 +954,7 @@ func handleNotFoundStatus(ctx context.Context, workspaceClient client.WorkspaceC
 	return fmt.Errorf("workspace not found")
 }
 
-// BuildAgentClientOptions contains parameters for BuildAgentClient
+// BuildAgentClientOptions contains parameters for BuildAgentClient.
 type BuildAgentClientOptions struct {
 	WorkspaceClient client.WorkspaceClient
 	CLIOptions      provider.CLIOptions
@@ -849,7 +963,7 @@ type BuildAgentClientOptions struct {
 	TunnelOptions   []tunnelserver.Option
 }
 
-// BuildAgentClient builds an agent client for workspace operations
+// BuildAgentClient builds an agent client for workspace operations.
 func BuildAgentClient(ctx context.Context, opts BuildAgentClientOptions) (*config2.Result, error) {
 	workspaceInfo, wInfo, err := opts.WorkspaceClient.AgentInfo(opts.CLIOptions)
 	if err != nil {
@@ -887,8 +1001,17 @@ func BuildAgentClient(ctx context.Context, opts BuildAgentClientOptions) (*confi
 	return result, <-errChan
 }
 
-func buildAgentCommand(workspaceClient client.WorkspaceClient, agentCommand, workspaceInfo string, log log.Logger) string {
-	command := fmt.Sprintf("'%s' agent workspace %s --workspace-info '%s'", workspaceClient.AgentPath(), agentCommand, workspaceInfo)
+func buildAgentCommand(
+	workspaceClient client.WorkspaceClient,
+	agentCommand, workspaceInfo string,
+	log log.Logger,
+) string {
+	command := fmt.Sprintf(
+		"'%s' agent workspace %s --workspace-info '%s'",
+		workspaceClient.AgentPath(),
+		agentCommand,
+		workspaceInfo,
+	)
 	if log.GetLevel() == logrus.DebugLevel {
 		command += " --debug"
 	}
@@ -953,7 +1076,11 @@ func runAgentInjection(opts agentInjectionOptions) chan error {
 	return errChan
 }
 
-func runTunnelServer(ctx context.Context, opts BuildAgentClientOptions, stdoutReader, stdinWriter *os.File) (*config2.Result, error) {
+func runTunnelServer(
+	ctx context.Context,
+	opts BuildAgentClientOptions,
+	stdoutReader, stdinWriter *os.File,
+) (*config2.Result, error) {
 	result, err := tunnelserver.RunUpServer(
 		ctx,
 		stdoutReader,

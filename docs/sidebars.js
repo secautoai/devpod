@@ -139,6 +139,10 @@ module.exports = {
           type: "doc",
           id: "managing-providers/delete-provider",
         },
+        {
+          type: "doc",
+          id: "managing-providers/rename-provider",
+        },
       ],
     },
     {
@@ -253,7 +257,7 @@ module.exports = {
     },
     {
       type: "link",
-      label: "maintained by skevetter",
+      label: "community maintained",
       href: "https://github.com/skevetter/devpod",
     },
   ],

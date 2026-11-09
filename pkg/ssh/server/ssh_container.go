@@ -90,7 +90,7 @@ func (s *containerServer) handler(sess ssh.Session) {
 	}
 
 	if ssh.AgentRequested(sess) {
-		l, tmpDir, err := setupAgentListener(sess, "")
+		l, tmpDir, err := setupAgentListener("")
 		if err != nil {
 			exitWithError(sess, err, s.log)
 			return
@@ -110,7 +110,13 @@ func (s *containerServer) handler(sess ssh.Session) {
 	}
 
 	if isPty {
-		err = execPTY(sess, ptyReq, winCh, cmd, s.log)
+		err = execPTY(ptyExecParams{
+			sess:   sess,
+			ptyReq: ptyReq,
+			winCh:  winCh,
+			cmd:    cmd,
+			log:    s.log,
+		})
 	} else {
 		err = execNonPTY(sess, cmd, s.log)
 	}

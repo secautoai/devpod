@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 
 	doublestar "github.com/bmatcuk/doublestar/v4"
-	"github.com/tidwall/jsonc"
+	"github.com/tailscale/hujson"
 )
 
 const DEVCONTAINER_FEATURE_FILE_NAME = "devcontainer-feature.json"
@@ -34,7 +34,11 @@ func ParseDevContainerFeature(folder string) (*FeatureConfig, error) {
 	}
 
 	featureConfig := &FeatureConfig{}
-	err = json.Unmarshal(jsonc.ToJSON(data), featureConfig)
+	normalized, err := hujson.Standardize(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse jsonc: %w", err)
+	}
+	err = json.Unmarshal(normalized, featureConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +52,8 @@ func SaveDevContainerJSON(config *DevContainerConfig) error {
 		return fmt.Errorf("no origin in config")
 	}
 
-	err := os.MkdirAll(filepath.Dir(config.Origin), 0755)
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err := os.MkdirAll(filepath.Dir(config.Origin), 0o755)
 	if err != nil {
 		return err
 	}
@@ -58,7 +63,8 @@ func SaveDevContainerJSON(config *DevContainerConfig) error {
 		return err
 	}
 
-	err = os.WriteFile(config.Origin, out, 0644)
+	// #nosec G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err = os.WriteFile(config.Origin, out, 0o644)
 	if err != nil {
 		return err
 	}
@@ -80,7 +86,11 @@ func ParseDevContainerJSONFile(jsonFilePath string) (*DevContainerConfig, error)
 	}
 
 	devContainer := &DevContainerConfig{}
-	err = json.Unmarshal(jsonc.ToJSON(bytes), devContainer)
+	normalized, err := hujson.Standardize(bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse jsonc: %w", err)
+	}
+	err = json.Unmarshal(normalized, devContainer)
 	if err != nil {
 		return nil, err
 	}
@@ -88,13 +98,16 @@ func ParseDevContainerJSONFile(jsonFilePath string) (*DevContainerConfig, error)
 	return replaceLegacy(devContainer)
 }
 
-// ParseDevContainerJSON check if a file named devcontainer.json exists in the given directory and parse it if it does
+// ParseDevContainerJSON check if a file named devcontainer.json exists in the given directory and parse it if it does.
 func ParseDevContainerJSON(folder, relativePath string) (*DevContainerConfig, error) {
 	return ParseDevContainerJSONWithSelector(folder, relativePath, nil)
 }
 
-// ParseDevContainerJSONWithSelector allows custom selection when multiple devcontainer configs exist
-func ParseDevContainerJSONWithSelector(folder, relativePath string, selector func([]string) (string, error)) (*DevContainerConfig, error) {
+// ParseDevContainerJSONWithSelector allows custom selection when multiple devcontainer configs exist.
+func ParseDevContainerJSONWithSelector(
+	folder, relativePath string,
+	selector func([]string) (string, error),
+) (*DevContainerConfig, error) {
 	path, err := resolveDevContainerPath(folder, relativePath, selector)
 	if err != nil {
 		return nil, err
@@ -105,7 +118,10 @@ func ParseDevContainerJSONWithSelector(folder, relativePath string, selector fun
 	return ParseDevContainerJSONFile(path)
 }
 
-func resolveDevContainerPath(folder, relativePath string, selector func([]string) (string, error)) (string, error) {
+func resolveDevContainerPath(
+	folder, relativePath string,
+	selector func([]string) (string, error),
+) (string, error) {
 	// Explicit path provided
 	if relativePath != "" {
 		path := path2.Join(filepath.ToSlash(folder), relativePath)
@@ -164,7 +180,9 @@ func findDevContainerConfigs(folder string) ([]string, error) {
 
 	// Fallback to glob for deeper structures
 	if len(configs) == 0 {
-		matches, err := doublestar.FilepathGlob(filepath.ToSlash(filepath.Clean(folder)) + "/.devcontainer/**/devcontainer.json")
+		matches, err := doublestar.FilepathGlob(
+			filepath.ToSlash(filepath.Clean(folder)) + "/.devcontainer/**/devcontainer.json",
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -174,7 +192,7 @@ func findDevContainerConfigs(folder string) ([]string, error) {
 	return configs, nil
 }
 
-// ListDevContainerIDs returns available devcontainer IDs in the folder
+// ListDevContainerIDs returns available devcontainer IDs in the folder.
 func ListDevContainerIDs(folder string) ([]string, error) {
 	configs, err := findDevContainerConfigs(folder)
 	if err != nil {
@@ -260,16 +278,30 @@ func ParseKeyValueFile(filename string) ([]string, error) {
 	for scanner.Scan() {
 		scannedBytes := scanner.Bytes()
 		if !utf8.Valid(scannedBytes) {
-			return nil, fmt.Errorf("env file %s contains invalid utf8 bytes in line %d", filename, lineNum)
+			return nil, fmt.Errorf(
+				"env file %s contains invalid utf8 bytes in line %d",
+				filename,
+				lineNum,
+			)
 		}
 		line := string(scannedBytes)
 		// skip commented or empty lines
 		if len(line) > 0 && !strings.HasPrefix(line, "#") {
 			key, value, found := strings.Cut(line, "=")
 			if len(key) == 0 || strings.Contains(key, " ") {
-				return nil, fmt.Errorf("env file %s contains invalid variable key in line %d: %s", filename, lineNum, line)
+				return nil, fmt.Errorf(
+					"env file %s contains invalid variable key in line %d: %s",
+					filename,
+					lineNum,
+					line,
+				)
 			} else if len(value) == 0 {
-				return nil, fmt.Errorf("env file %s contains invalid variable value in line %d: %s", filename, lineNum, line)
+				return nil, fmt.Errorf(
+					"env file %s contains invalid variable value in line %d: %s",
+					filename,
+					lineNum,
+					line,
+				)
 			}
 			if found {
 				keyValuePairs = append(keyValuePairs, line)

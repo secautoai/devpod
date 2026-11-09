@@ -24,7 +24,10 @@ func (k *KubernetesDriver) EnsureDaemonConfigSecret(
 			return nil
 		}
 
-		k.Log.Debugf("Daemon config secret '%s' already exists, but is outdated. Recreating...", secretName)
+		k.Log.Debugf(
+			"Daemon config secret '%s' already exists, but is outdated. Recreating...",
+			secretName,
+		)
 		err := k.DeleteSecret(ctx, secretName)
 		if err != nil {
 			return err
@@ -45,8 +48,16 @@ func (k *KubernetesDriver) EnsureDaemonConfigSecret(
 	k.Log.Infof("Daemon config secret '%s' created", secretName)
 	return nil
 }
-func (k *KubernetesDriver) shouldRecreateDaemonConfigSecret(ctx context.Context, newData string, secretName string) bool {
-	secret, err := k.client.Client().CoreV1().Secrets(k.namespace).Get(ctx, secretName, metav1.GetOptions{})
+
+func (k *KubernetesDriver) shouldRecreateDaemonConfigSecret(
+	ctx context.Context,
+	newData string,
+	secretName string,
+) bool {
+	secret, err := k.client.Client().
+		CoreV1().
+		Secrets(k.namespace).
+		Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
 		return true
 	}
@@ -61,12 +72,16 @@ func (k *KubernetesDriver) shouldRecreateDaemonConfigSecret(ctx context.Context,
 
 func (k *KubernetesDriver) DeleteDaemonConfigSecret(
 	ctx context.Context,
-	secretName string) error {
+	secretName string,
+) error {
 	if !k.secretExists(ctx, secretName) {
 		return nil
 	}
 
-	err := k.client.Client().CoreV1().Secrets(k.namespace).Delete(ctx, secretName, metav1.DeleteOptions{})
+	err := k.client.Client().
+		CoreV1().
+		Secrets(k.namespace).
+		Delete(ctx, secretName, metav1.DeleteOptions{})
 	if err != nil && !kerrors.IsNotFound(err) {
 		return fmt.Errorf("delete daemon config secret: %w", err)
 	}

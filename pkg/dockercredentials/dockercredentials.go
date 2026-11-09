@@ -7,16 +7,16 @@ import (
 	"runtime"
 	"strings"
 
+	"al.essio.dev/pkg/shellescape"
+	dockerconfig "github.com/containers/image/v5/pkg/docker/config"
 	"github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/config/types"
-	"github.com/kballard/go-shellquote"
 	"github.com/skevetter/devpod/pkg/command"
+	pkgconfig "github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/docker"
 	"github.com/skevetter/devpod/pkg/file"
 	"github.com/skevetter/devpod/pkg/random"
 	"github.com/skevetter/log"
-
-	dockerconfig "github.com/containers/image/v5/pkg/docker/config"
 )
 
 const (
@@ -70,13 +70,18 @@ func ConfigureCredentialsContainer(userName string, port int, log log.Logger) er
 
 const AzureContainerRegistryUsername = "00000000-0000-0000-0000-000000000000"
 
-func configureCredentials(userName, shebang string, targetDir, configDir string, port int, log log.Logger) error {
+func configureCredentials(
+	userName, shebang string,
+	targetDir, configDir string,
+	port int,
+	log log.Logger,
+) error {
 	binaryPath, err := os.Executable()
 	if err != nil {
 		return err
 	}
 
-	err = file.MkdirAll(userName, configDir, 0755)
+	err = file.MkdirAll(userName, configDir, 0o755)
 	if err != nil {
 		return err
 	}
@@ -87,7 +92,7 @@ func configureCredentials(userName, shebang string, targetDir, configDir string,
 	}
 
 	// write credentials helper
-	helperName := "docker-credential-devpod"
+	helperName := pkgconfig.DockerCredentialHelperName
 	if runtime.GOOS == windowsOS {
 		helperName += ".cmd"
 	}
@@ -96,21 +101,31 @@ func configureCredentials(userName, shebang string, targetDir, configDir string,
 	var helperContent []byte
 	if runtime.GOOS == windowsOS {
 		escapedPath := strings.ReplaceAll(binaryPath, "%", "%%")
-		script := fmt.Sprintf("@echo off\r\n\"%s\" agent docker-credentials --port %d %%*\r\n", escapedPath, port)
+		script := fmt.Sprintf(
+			"@echo off\r\n\"%s\" agent docker-credentials --port %d %%*\r\n",
+			escapedPath,
+			port,
+		)
 		helperContent = []byte(script)
 	} else {
-		cmd := shellquote.Join(binaryPath, "agent", "docker-credentials", "--port", fmt.Sprintf("%d", port))
+		cmd := shellescape.QuoteCommand([]string{
+			binaryPath,
+			"agent",
+			"docker-credentials",
+			"--port",
+			fmt.Sprintf("%d", port),
+		})
 		helperContent = []byte(shebang + "\n" + cmd + ` "$@"` + "\n")
 	}
 
 	log.Debugf("Wrote docker credentials helper to %s", credentialHelperPath)
 	// #nosec G306 -- executable file needs 0755 permissions
-	err = os.WriteFile(credentialHelperPath, helperContent, 0755)
+	err = os.WriteFile(credentialHelperPath, helperContent, 0o755)
 	if err != nil {
 		return fmt.Errorf("write credential helper: %w", err)
 	}
 
-	dockerConfig.CredentialsStore = "devpod"
+	dockerConfig.CredentialsStore = pkgconfig.BinaryName
 	err = dockerConfig.Save()
 	if err != nil {
 		return err
@@ -126,7 +141,14 @@ func configureCredentials(userName, shebang string, targetDir, configDir string,
 
 func ConfigureCredentialsDockerless(targetFolder string, port int, log log.Logger) (string, error) {
 	dockerConfigDir := filepath.Join(targetFolder, ".cache", random.String(6))
-	err := configureCredentials("", "#!/.dockerless/bin/sh", dockerConfigDir, dockerConfigDir, port, log)
+	err := configureCredentials(
+		"",
+		"#!/.dockerless/bin/sh",
+		dockerConfigDir,
+		dockerConfigDir,
+		port,
+		log,
+	)
 	if err != nil {
 		_ = os.RemoveAll(dockerConfigDir)
 		return "", err

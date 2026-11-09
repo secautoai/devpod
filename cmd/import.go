@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/cmd/flags"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/extract"
@@ -18,7 +17,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// ImportCmd holds the export cmd flags
+// ImportCmd holds the export cmd flags.
 type ImportCmd struct {
 	*flags.GlobalFlags
 
@@ -33,7 +32,7 @@ type ImportCmd struct {
 	Data string
 }
 
-// NewImportCmd creates a new command
+// NewImportCmd creates a new command.
 func NewImportCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &ImportCmd{
 		GlobalFlags: flags,
@@ -43,28 +42,29 @@ func NewImportCmd(flags *flags.GlobalFlags) *cobra.Command {
 		Short:  "Imports a workspace configuration",
 		Args:   cobra.NoArgs,
 		Hidden: true,
-		RunE: func(_ *cobra.Command, args []string) error {
-			ctx := context.Background()
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
 			devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 			if err != nil {
 				return err
 			}
 
-			return cmd.Run(ctx, devPodConfig, log.Default)
+			return cmd.Run(cobraCmd.Context(), devPodConfig, log.Default)
 		},
 	}
 
 	importCmd.Flags().StringVar(&cmd.WorkspaceID, "workspace-id", "", "To workspace id to use")
 	importCmd.Flags().StringVar(&cmd.MachineID, "machine-id", "", "The machine id to use")
-	importCmd.Flags().BoolVar(&cmd.MachineReuse, "machine-reuse", false, "If machine already exists, reuse existing machine")
+	importCmd.Flags().
+		BoolVar(&cmd.MachineReuse, "machine-reuse", false, "If machine already exists, reuse existing machine")
 	importCmd.Flags().StringVar(&cmd.ProviderID, "provider-id", "", "The provider id to use")
-	importCmd.Flags().BoolVar(&cmd.ProviderReuse, "provider-reuse", false, "If provider already exists, reuse existing provider")
+	importCmd.Flags().
+		BoolVar(&cmd.ProviderReuse, "provider-reuse", false, "If provider already exists, reuse existing provider")
 	importCmd.Flags().StringVar(&cmd.Data, "data", "", "The data to import as raw json")
 	_ = importCmd.MarkFlagRequired("data")
 	return importCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *ImportCmd) Run(ctx context.Context, devPodConfig *config.Config, log log.Logger) error {
 	exportConfig := &provider.ExportConfig{}
 	err := json.Unmarshal([]byte(cmd.Data), exportConfig)
@@ -114,13 +114,18 @@ func (cmd *ImportCmd) Run(ctx context.Context, devPodConfig *config.Config, log 
 	return nil
 }
 
-func (cmd *ImportCmd) importWorkspace(devPodConfig *config.Config, exportConfig *provider.ExportConfig, log log.Logger) error {
+func (cmd *ImportCmd) importWorkspace(
+	devPodConfig *config.Config,
+	exportConfig *provider.ExportConfig,
+	log log.Logger,
+) error {
 	workspaceDir, err := provider.GetWorkspaceDir(devPodConfig.DefaultContext, cmd.WorkspaceID)
 	if err != nil {
 		return fmt.Errorf("get workspace dir: %w", err)
 	}
 
-	err = os.MkdirAll(workspaceDir, 0755)
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err = os.MkdirAll(workspaceDir, 0o755)
 	if err != nil {
 		return fmt.Errorf("create workspace dir: %w", err)
 	}
@@ -136,7 +141,10 @@ func (cmd *ImportCmd) importWorkspace(devPodConfig *config.Config, exportConfig 
 	}
 
 	// exchange config
-	workspaceConfig, err := provider.LoadWorkspaceConfig(devPodConfig.DefaultContext, cmd.WorkspaceID)
+	workspaceConfig, err := provider.LoadWorkspaceConfig(
+		devPodConfig.DefaultContext,
+		cmd.WorkspaceID,
+	)
 	if err != nil {
 		return fmt.Errorf("load machine config: %w", err)
 	}
@@ -151,13 +159,15 @@ func (cmd *ImportCmd) importWorkspace(devPodConfig *config.Config, exportConfig 
 		return fmt.Errorf("save workspace config: %w", err)
 	}
 
-	log.WithFields(logrus.Fields{
-		"workspaceId": cmd.WorkspaceID,
-	}).Done("imported workspace")
+	log.Donef("imported workspace: workspaceId=%s", cmd.WorkspaceID)
 	return nil
 }
 
-func (cmd *ImportCmd) importMachine(devPodConfig *config.Config, exportConfig *provider.ExportConfig, log log.Logger) error {
+func (cmd *ImportCmd) importMachine(
+	devPodConfig *config.Config,
+	exportConfig *provider.ExportConfig,
+	log log.Logger,
+) error {
 	if exportConfig.Machine == nil {
 		return nil
 	}
@@ -173,7 +183,8 @@ func (cmd *ImportCmd) importMachine(devPodConfig *config.Config, exportConfig *p
 		return fmt.Errorf("get machine dir: %w", err)
 	}
 
-	err = os.MkdirAll(machineDir, 0755)
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err = os.MkdirAll(machineDir, 0o755)
 	if err != nil {
 		return fmt.Errorf("create machine dir: %w", err)
 	}
@@ -203,13 +214,15 @@ func (cmd *ImportCmd) importMachine(devPodConfig *config.Config, exportConfig *p
 		return fmt.Errorf("save machine config: %w", err)
 	}
 
-	log.WithFields(logrus.Fields{
-		"machineId": cmd.MachineID,
-	}).Done("imported machine")
+	log.Donef("imported machine: machineId=%s", cmd.MachineID)
 	return nil
 }
 
-func (cmd *ImportCmd) importProvider(devPodConfig *config.Config, exportConfig *provider.ExportConfig, log log.Logger) error {
+func (cmd *ImportCmd) importProvider(
+	devPodConfig *config.Config,
+	exportConfig *provider.ExportConfig,
+	log log.Logger,
+) error {
 	// if provider already exists we skip
 	if cmd.ProviderReuse && provider.ProviderExists(devPodConfig.DefaultContext, cmd.ProviderID) {
 		log.Infof("Reusing existing provider %s", cmd.ProviderID)
@@ -221,7 +234,8 @@ func (cmd *ImportCmd) importProvider(devPodConfig *config.Config, exportConfig *
 		return fmt.Errorf("get provider dir: %w", err)
 	}
 
-	err = os.MkdirAll(providerDir, 0755)
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err = os.MkdirAll(providerDir, 0o755)
 	if err != nil {
 		return fmt.Errorf("create provider dir: %w", err)
 	}
@@ -262,13 +276,16 @@ func (cmd *ImportCmd) importProvider(devPodConfig *config.Config, exportConfig *
 		}
 	}
 
-	log.WithFields(logrus.Fields{
-		"providerId": cmd.ProviderID,
-	}).Done("imported provider")
+	log.Donef("imported provider: providerId=%s", cmd.ProviderID)
 	return nil
 }
 
-func (cmd *ImportCmd) checkForConflictingIDs(ctx context.Context, exportConfig *provider.ExportConfig, devPodConfig *config.Config, log log.Logger) error {
+func (cmd *ImportCmd) checkForConflictingIDs(
+	ctx context.Context,
+	exportConfig *provider.ExportConfig,
+	devPodConfig *config.Config,
+	log log.Logger,
+) error {
 	workspaces, err := workspace.List(ctx, devPodConfig, false, cmd.Owner, log)
 	if err != nil {
 		return fmt.Errorf("error listing workspaces: %w", err)
@@ -278,9 +295,16 @@ func (cmd *ImportCmd) checkForConflictingIDs(ctx context.Context, exportConfig *
 	if exportConfig.Workspace != nil {
 		for _, workspace := range workspaces {
 			if workspace.ID == cmd.WorkspaceID {
-				return fmt.Errorf("existing workspace with id %s found, please use --workspace-id to override the workspace id", cmd.WorkspaceID)
+				return fmt.Errorf(
+					"existing workspace with id %s found, please use --workspace-id to override the workspace id",
+					cmd.WorkspaceID,
+				)
 			} else if workspace.UID == exportConfig.Workspace.UID {
-				return fmt.Errorf("existing workspace %s with uid %s found, please use --workspace-id to override the workspace id", workspace.ID, workspace.UID)
+				return fmt.Errorf(
+					"existing workspace %s with uid %s found, please use --workspace-id to override the workspace id",
+					workspace.ID,
+					workspace.UID,
+				)
 			}
 		}
 	}
@@ -288,14 +312,22 @@ func (cmd *ImportCmd) checkForConflictingIDs(ctx context.Context, exportConfig *
 	// check if machine already exists
 	if !cmd.MachineReuse && exportConfig.Machine != nil {
 		if provider.MachineExists(devPodConfig.DefaultContext, cmd.MachineID) {
-			return fmt.Errorf("existing machine with id %s found, please use --machine-reuse to skip importing the machine or --machine-id to override the machine id", cmd.MachineID)
+			return fmt.Errorf(
+				"existing machine with id %s found, please use --machine-reuse to skip importing "+
+					"the machine or --machine-id to override the machine id",
+				cmd.MachineID,
+			)
 		}
 	}
 
 	// check if provider already exists
 	if !cmd.ProviderReuse && exportConfig.Provider != nil {
 		if provider.ProviderExists(devPodConfig.DefaultContext, cmd.ProviderID) {
-			return fmt.Errorf("existing provider with id %s found, please use --provider-reuse to skip importing the provider or --provider-id to override the provider id", cmd.ProviderID)
+			return fmt.Errorf(
+				"existing provider with id %s found, please use --provider-reuse to skip importing "+
+					"the provider or --provider-id to override the provider id",
+				cmd.ProviderID,
+			)
 		}
 	}
 

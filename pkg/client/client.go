@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/loft-sh/api/v4/pkg/devpod"
+	"github.com/skevetter/api/pkg/devsy"
 	"github.com/skevetter/devpod/pkg/devcontainer/config"
 	"github.com/skevetter/devpod/pkg/provider"
 	"golang.org/x/crypto/ssh"
@@ -45,16 +45,19 @@ type Client interface {
 	AgentURL() string
 
 	// Create creates a new workspace
-	Create(ctx context.Context, options CreateOptions) error
+	Create(ctx context.Context) error
+
+	// Describe retrieves the virtual machine description
+	Describe(ctx context.Context) (string, error)
 
 	// Start starts the workspace
-	Start(ctx context.Context, options StartOptions) error
+	Start(ctx context.Context) error
 
 	// Command creates an SSH tunnel into the workspace
 	Command(ctx context.Context, options CommandOptions) error
 }
 
-// ProxyClient executes it's commands on the platform
+// ProxyClient executes it's commands on the platform.
 type ProxyClient interface {
 	BaseWorkspaceClient
 
@@ -68,7 +71,7 @@ type ProxyClient interface {
 	Ssh(ctx context.Context, options SshOptions) error
 }
 
-// DaemonClient connects to workspaces through a shared daemon
+// DaemonClient connects to workspaces through a shared daemon.
 type DaemonClient interface {
 	BaseWorkspaceClient
 
@@ -132,25 +135,17 @@ type WorkspaceClient interface {
 	AgentInfo(options provider.CLIOptions) (string, *provider.AgentWorkspaceInfo, error)
 }
 
-type InitOptions struct{}
-
-type ValidateOptions struct{}
-
-type StartOptions struct{}
-
 type StopOptions struct {
-	Platform devpod.PlatformOptions `json:"platform"`
+	Platform devsy.PlatformOptions `json:"platform"`
 }
 
 type DeleteOptions struct {
-	Platform devpod.PlatformOptions `json:"platform"`
+	Platform devsy.PlatformOptions `json:"platform"`
 
 	IgnoreNotFound bool   `json:"ignoreNotFound,omitempty"`
 	Force          bool   `json:"force,omitempty"`
 	GracePeriod    string `json:"gracePeriod,omitempty"`
 }
-
-type CreateOptions struct{}
 
 type StatusOptions struct {
 	ContainerStatus bool `json:"containerStatus,omitempty"`
@@ -179,8 +174,6 @@ type SshOptions struct {
 	Stdout io.Writer
 }
 
-type ImportWorkspaceOptions map[string]string
-
 type Status string
 
 const (
@@ -202,9 +195,17 @@ func ParseStatus(in string) (Status, error) {
 	case "NOTFOUND":
 		return StatusNotFound, nil
 	default:
-		return StatusNotFound, fmt.Errorf("error parsing status: '%s' unrecognized status, needs to be one of: %s", in, []string{StatusRunning, StatusBusy, StatusStopped, StatusNotFound})
+		return StatusNotFound, fmt.Errorf(
+			"error parsing status: '%s' unrecognized status, needs to be one of: %s",
+			in,
+			[]string{StatusRunning, StatusBusy, StatusStopped, StatusNotFound},
+		)
 	}
 }
+
+const (
+	DescriptionNotFound = "{}"
+)
 
 type WorkspaceStatus struct {
 	ID       string `json:"id,omitempty"`

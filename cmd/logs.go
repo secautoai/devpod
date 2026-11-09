@@ -18,12 +18,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// LogsCmd holds the configuration
+// LogsCmd holds the configuration.
 type LogsCmd struct {
 	*flags.GlobalFlags
 }
 
-// NewLogsCmd creates a new destroy command
+// NewLogsCmd creates a new destroy command.
 func NewLogsCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &LogsCmd{
 		GlobalFlags: flags,
@@ -34,22 +34,37 @@ func NewLogsCmd(flags *flags.GlobalFlags) *cobra.Command {
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
 			return cmd.Run(cobraCmd.Context(), args)
 		},
-		ValidArgsFunction: func(rootCmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			return completion.GetWorkspaceSuggestions(rootCmd, cmd.Context, cmd.Provider, args, toComplete, cmd.Owner, log.Default)
+		ValidArgsFunction: func(
+			rootCmd *cobra.Command, args []string, toComplete string,
+		) ([]string, cobra.ShellCompDirective) {
+			return completion.GetWorkspaceSuggestions(
+				rootCmd,
+				cmd.Context,
+				cmd.Provider,
+				args,
+				toComplete,
+				cmd.Owner,
+				log.Default,
+			)
 		},
 	}
 
 	return startCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *LogsCmd) Run(ctx context.Context, args []string) error {
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
 		return err
 	}
 
-	baseClient, err := workspace.Get(ctx, devPodConfig, args, false, cmd.Owner, false, log.Default)
+	baseClient, err := workspace.Get(ctx, workspace.GetOptions{
+		DevPodConfig: devPodConfig,
+		Args:         args,
+		Owner:        cmd.Owner,
+		Log:          log.Default,
+	})
 	if err != nil {
 		return err
 	}
@@ -109,7 +124,12 @@ func (cmd *LogsCmd) Run(ctx context.Context, args []string) error {
 	}()
 
 	// create agent command
-	agentCommand := fmt.Sprintf("'%s' agent workspace logs --context '%s' --id '%s'", client.AgentPath(), client.Context(), client.Workspace())
+	agentCommand := fmt.Sprintf(
+		"'%s' agent workspace logs --context '%s' --id '%s'",
+		client.AgentPath(),
+		client.Context(),
+		client.Workspace(),
+	)
 	if log.GetLevel() == logrus.DebugLevel {
 		agentCommand += " --debug"
 	}

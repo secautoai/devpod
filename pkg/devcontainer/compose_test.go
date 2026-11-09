@@ -6,15 +6,102 @@ import (
 
 	composetypes "github.com/compose-spec/compose-go/v2/types"
 	"github.com/sirupsen/logrus"
+	"github.com/skevetter/devpod/pkg/compose"
 	"github.com/skevetter/devpod/pkg/devcontainer/config"
 	"github.com/skevetter/devpod/pkg/devcontainer/feature"
+	"github.com/skevetter/devpod/pkg/docker"
 	logLib "github.com/skevetter/log"
 	"github.com/stretchr/testify/suite"
 )
 
-func TestStripDigestFromImageRef(t *testing.T) {
-	t.Parallel()
+const bindMountType = "bind"
 
+type composeBuildImageNameTestCase struct {
+	name          string
+	composeHelper *compose.ComposeHelper
+	projectName   string
+	service       *composetypes.ServiceConfig
+	hasFeatures   bool
+	want          string
+}
+
+var composeBuildImageNameTests = []composeBuildImageNameTestCase{
+	{
+		name:          "keeps original image without features",
+		composeHelper: &compose.ComposeHelper{Version: "2.30.0"},
+		projectName:   "workspace",
+		service: &composetypes.ServiceConfig{
+			Name:  "app",
+			Image: "ghcr.io/example/shared-base:latest",
+		},
+		want: "ghcr.io/example/shared-base:latest",
+	},
+	{
+		name:          "uses workspace image for image backed features",
+		composeHelper: &compose.ComposeHelper{Version: "2.30.0"},
+		projectName:   "workspace",
+		service: &composetypes.ServiceConfig{
+			Name:  "app",
+			Image: "ghcr.io/example/shared-base:latest",
+		},
+		hasFeatures: true,
+		want:        "workspace-app",
+	},
+	{
+		name:          "uses compose version separator for image backed features",
+		composeHelper: &compose.ComposeHelper{Version: "2.7.0"},
+		projectName:   "workspace",
+		service: &composetypes.ServiceConfig{
+			Name:  "app",
+			Image: "ghcr.io/example/shared-base:latest",
+		},
+		hasFeatures: true,
+		want:        "workspace_app",
+	},
+	{
+		// Documents current behavior: when both image and build are set, the
+		// declared image tag is used even with features, which could collide
+		// with the upstream registry tag. Changing this would be intentional.
+		name:          "preserves build backed services with features",
+		composeHelper: &compose.ComposeHelper{Version: "2.30.0"},
+		projectName:   "workspace",
+		service: &composetypes.ServiceConfig{
+			Name:  "app",
+			Image: "ghcr.io/example/shared-base:latest",
+			Build: &composetypes.BuildConfig{Context: "."},
+		},
+		hasFeatures: true,
+		want:        "ghcr.io/example/shared-base:latest",
+	},
+	{
+		name:          "preserves build backed services without features",
+		composeHelper: &compose.ComposeHelper{Version: "2.30.0"},
+		projectName:   "workspace",
+		service: &composetypes.ServiceConfig{
+			Name:  "app",
+			Image: "ghcr.io/example/shared-base:latest",
+			Build: &composetypes.BuildConfig{Context: "."},
+		},
+		hasFeatures: false,
+		want:        "ghcr.io/example/shared-base:latest",
+	},
+	{
+		name:          "uses default image when compose image is empty",
+		composeHelper: &compose.ComposeHelper{Version: "2.30.0"},
+		projectName:   "workspace",
+		service: &composetypes.ServiceConfig{
+			Name: "app",
+		},
+		hasFeatures: true,
+		want:        "workspace-app",
+	},
+}
+
+type ComposeSuite struct {
+	suite.Suite
+}
+
+func (s *ComposeSuite) TestStripDigestFromImageRef() {
 	tests := []struct {
 		name  string
 		input string
@@ -38,15 +125,113 @@ func TestStripDigestFromImageRef(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
+		s.Run(tt.name, func() {
 			got := stripDigestFromImageRef(tt.input)
-			if got != tt.want {
-				t.Fatalf("stripDigestFromImageRef(%q) = %q, want %q", tt.input, got, tt.want)
-			}
+			s.Equal(tt.want, got)
 		})
 	}
+}
+
+func (s *ComposeSuite) TestComposeBuildImageName() {
+	for _, tt := range composeBuildImageNameTests {
+		s.Run(tt.name, func() {
+			got, err := composeBuildImageName(
+				tt.composeHelper,
+				tt.projectName,
+				tt.service,
+				tt.hasFeatures,
+			)
+			s.Require().NoError(err)
+			s.Equal(tt.want, got)
+		})
+	}
+}
+
+func (s *ComposeSuite) TestCreateComposeServiceUsesBuildImageName() {
+	r := &runner{}
+	service := r.createComposeService(
+		&composetypes.ServiceConfig{
+			Name:  "app",
+			Image: "ghcr.io/example/shared-base:latest",
+			Build: &composetypes.BuildConfig{Target: "original-target"},
+		},
+		"workspace-app:latest",
+		"Dockerfile-with-features",
+		"/tmp/context",
+		&feature.BuildInfo{
+			OverrideTarget: "dev_containers_target_stage",
+			BuildArgs: map[string]string{
+				"FEATURE_FLAG": "true",
+			},
+		},
+	)
+
+	s.Equal("workspace-app:latest", service.Image)
+	s.Require().NotNil(service.Build)
+	s.Equal("dev_containers_target_stage", service.Build.Target)
+	s.Equal("Dockerfile-with-features", service.Build.Dockerfile)
+	s.Equal("/tmp/context", service.Build.Context)
+	s.Require().NotNil(service.Build.Args)
+	s.requireBuildArgValue(service.Build.Args, "FEATURE_FLAG", "true")
+	s.requireBuildArgValue(service.Build.Args, "BUILDKIT_INLINE_CACHE", "1")
+}
+
+func (s *ComposeSuite) TestGenerateDockerComposeUpProjectPreservesReadOnlyMountOptions() {
+	r := &runner{}
+
+	project := r.generateDockerComposeUpProject(
+		&config.SubstitutedConfig{Config: &config.DevContainerConfig{}},
+		&config.MergedDevContainerConfig{
+			NonComposeBase: config.NonComposeBase{
+				Mounts: []*config.Mount{
+					{
+						Type:   bindMountType,
+						Source: "/tmp/read-only-data",
+						Target: "/workspace/read_only_folder",
+						Other:  []string{readOnlyMountOption},
+					},
+					{
+						Type:   bindMountType,
+						Source: "/tmp/read-only-short-data",
+						Target: "/workspace/read_only_short_folder",
+						Other:  []string{"ro"},
+					},
+					{
+						Type:   bindMountType,
+						Source: "/tmp/valued-read-only-data",
+						Target: "/workspace/valued_read_only_folder",
+						Other:  []string{"readonly=true"},
+					},
+				},
+			},
+		},
+		&compose.ComposeHelper{Docker: &docker.DockerHelper{DockerCommand: "true"}},
+		&composetypes.ServiceConfig{Name: "app"},
+		"mcr.microsoft.com/devcontainers/base:noble",
+		"mcr.microsoft.com/devcontainers/base:noble",
+		&config.ImageDetails{},
+		nil,
+	)
+
+	service := project.Services["app"]
+	s.Require().Len(service.Volumes, 3)
+	s.True(service.Volumes[0].ReadOnly)
+	s.True(service.Volumes[1].ReadOnly)
+	s.False(service.Volumes[2].ReadOnly)
+}
+
+func (s *ComposeSuite) requireBuildArgValue(
+	args composetypes.MappingWithEquals,
+	key, want string,
+) {
+	s.T().Helper()
+
+	s.Require().NotNil(args[key])
+	s.Equal(want, *args[key])
+}
+
+func TestComposeSuite(t *testing.T) {
+	suite.Run(t, new(ComposeSuite))
 }
 
 type PrepareBuildContextSuite struct {
@@ -67,7 +252,10 @@ func (s *PrepareBuildContextSuite) TestNoContextRelativePath() {
 	)
 
 	s.NoError(err)
-	s.False(filepath.IsAbs(result.dockerfilePathInContext), "dockerfilePathInContext should be relative")
+	s.False(
+		filepath.IsAbs(result.dockerfilePathInContext),
+		"dockerfilePathInContext should be relative",
+	)
 	s.Equal("Dockerfile", result.dockerfilePathInContext)
 	s.Equal("/tmp/features", result.context)
 }
@@ -81,7 +269,10 @@ func (s *PrepareBuildContextSuite) TestNilBuildRelativePath() {
 	)
 
 	s.NoError(err)
-	s.False(filepath.IsAbs(result.dockerfilePathInContext), "dockerfilePathInContext should be relative")
+	s.False(
+		filepath.IsAbs(result.dockerfilePathInContext),
+		"dockerfilePathInContext should be relative",
+	)
 	s.Equal("Dockerfile", result.dockerfilePathInContext)
 	s.Equal("/workspace/.devcontainer/features", result.context)
 }
@@ -102,7 +293,10 @@ func (s *PrepareBuildContextSuite) TestCustomBuildContext() {
 	)
 
 	s.NoError(err)
-	s.False(filepath.IsAbs(result.dockerfilePathInContext), "dockerfilePathInContext should be relative")
+	s.False(
+		filepath.IsAbs(result.dockerfilePathInContext),
+		"dockerfilePathInContext should be relative",
+	)
 	s.Equal(".devcontainer/features/Dockerfile", result.dockerfilePathInContext)
 	s.Equal("/workspace", result.context)
 	s.Contains(result.dockerfileContent, "COPY ./.devcontainer/features/folder/")

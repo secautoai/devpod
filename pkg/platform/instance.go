@@ -10,15 +10,18 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
-	managementv1 "github.com/loft-sh/api/v4/pkg/apis/management/v1"
-	storagev1 "github.com/loft-sh/api/v4/pkg/apis/storage/v1"
+	managementv1 "github.com/skevetter/api/pkg/apis/management/v1"
+	storagev1 "github.com/skevetter/api/pkg/apis/storage/v1"
 	"github.com/skevetter/devpod/pkg/platform/client"
+	"github.com/skevetter/devpod/pkg/platform/kube"
 	"github.com/skevetter/devpod/pkg/platform/project"
 	"github.com/skevetter/log"
 	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -56,53 +59,98 @@ func GetWorkspaceInfoFromEnv() (*WorkspaceInfo, error) {
 	return workspaceInfo, nil
 }
 
-func FindInstance(ctx context.Context, baseClient client.Client, uid string) (*managementv1.DevPodWorkspaceInstance, error) {
-	managementClient, err := baseClient.Management()
-	if err != nil {
-		return nil, fmt.Errorf("create management client: %w", err)
-	}
-
-	workspaceList, err := managementClient.Loft().ManagementV1().DevPodWorkspaceInstances("").List(ctx, metav1.ListOptions{
-		LabelSelector: storagev1.DevPodWorkspaceUIDLabel + "=" + uid,
-	})
-	if err != nil {
-		return nil, err
-	} else if len(workspaceList.Items) == 0 {
-		return nil, nil
-	}
-
-	return &workspaceList.Items[0], nil
-}
-func FindInstanceInProject(ctx context.Context, baseClient client.Client, uid, projectName string) (*managementv1.DevPodWorkspaceInstance, error) {
-	managementClient, err := baseClient.Management()
-	if err != nil {
-		return nil, fmt.Errorf("create management client: %w", err)
-	}
-
-	workspaceList, err := managementClient.Loft().ManagementV1().DevPodWorkspaceInstances(project.ProjectNamespace(projectName)).List(ctx, metav1.ListOptions{
-		LabelSelector: storagev1.DevPodWorkspaceUIDLabel + "=" + uid,
-	})
-	if err != nil {
-		return nil, err
-	} else if len(workspaceList.Items) == 0 {
-		return nil, nil
-	}
-
-	return &workspaceList.Items[0], nil
+// FindInstanceOptions configures how to find a DevPodWorkspaceInstance.
+type FindInstanceOptions struct {
+	// UID searches for an instance by its UID label. Takes precedence over Name.
+	UID string
+	// Name searches for an instance by its name. Only used if UID is empty.
+	Name string
+	// Namespace specifies the namespace to search in. If empty and ProjectName is set,
+	// the project namespace is used. If both are empty, UID lookup searches all namespaces.
+	// Name lookup requires Namespace or ProjectName to avoid ambiguous cross-namespace matches.
+	Namespace string
+	// ProjectName converts to a project namespace. Ignored if Namespace is explicitly set.
+	ProjectName string
 }
 
-func FindInstanceByName(ctx context.Context, baseClient client.Client, name, projectName string) (*managementv1.DevPodWorkspaceInstance, error) {
-	managementClient, err := baseClient.Management()
-	if err != nil {
-		return nil, fmt.Errorf("create management client: %w", err)
+// resolveNamespace determines the namespace to use based on options.
+func resolveNamespace(opts FindInstanceOptions) string {
+	if opts.Namespace != "" {
+		return opts.Namespace
 	}
+	if opts.ProjectName != "" {
+		return project.ProjectNamespace(opts.ProjectName)
+	}
+	return ""
+}
 
-	workspace, err := managementClient.Loft().ManagementV1().DevPodWorkspaceInstances(project.ProjectNamespace(projectName)).Get(ctx, name, metav1.GetOptions{})
+// findInstanceByUID searches for an instance using its UID label.
+func findInstanceByUID(
+	ctx context.Context,
+	managementClient kube.Interface,
+	uid string,
+	namespace string,
+) (*managementv1.DevPodWorkspaceInstance, error) {
+	listOpts := metav1.ListOptions{
+		LabelSelector: storagev1.DevPodWorkspaceUIDLabel + "=" + uid,
+	}
+	workspaceList, err := managementClient.Loft().ManagementV1().
+		DevPodWorkspaceInstances(namespace).List(ctx, listOpts)
 	if err != nil {
 		return nil, err
 	}
+	if len(workspaceList.Items) == 0 {
+		return nil, nil
+	}
+	return &workspaceList.Items[0], nil
+}
 
+// findInstanceByName searches for an instance using its name.
+func findInstanceByName(
+	ctx context.Context,
+	managementClient kube.Interface,
+	name string,
+	namespace string,
+) (*managementv1.DevPodWorkspaceInstance, error) {
+	workspace, err := managementClient.Loft().ManagementV1().
+		DevPodWorkspaceInstances(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		if kerrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
 	return workspace, nil
+}
+
+// FindInstance finds a DevPodWorkspaceInstance using the provided options.
+// Either UID or Name must be specified. If neither is provided, returns an error.
+func FindInstance(
+	ctx context.Context,
+	baseClient client.Client,
+	opts FindInstanceOptions,
+) (*managementv1.DevPodWorkspaceInstance, error) {
+	managementClient, err := baseClient.Management()
+	if err != nil {
+		return nil, fmt.Errorf("create management client: %w", err)
+	}
+
+	namespace := resolveNamespace(opts)
+
+	if opts.UID != "" {
+		return findInstanceByUID(ctx, managementClient, opts.UID, namespace)
+	}
+
+	if opts.Name != "" {
+		if namespace == metav1.NamespaceAll {
+			return nil, fmt.Errorf(
+				"the Namespace or ProjectName must be specified when searching by Name",
+			)
+		}
+		return findInstanceByName(ctx, managementClient, opts.Name, namespace)
+	}
+
+	return nil, fmt.Errorf("either UID or Name must be specified in FindInstanceOptions")
 }
 
 func OptionsFromEnv(name string) url.Values {
@@ -127,7 +175,13 @@ func URLOptions(options any) url.Values {
 	return nil
 }
 
-func DialInstance(baseClient client.Client, workspace *managementv1.DevPodWorkspaceInstance, subResource string, values url.Values, log log.Logger) (*websocket.Conn, error) {
+func DialInstance(
+	baseClient client.Client,
+	workspace *managementv1.DevPodWorkspaceInstance,
+	subResource string,
+	values url.Values,
+	log log.Logger,
+) (*websocket.Conn, error) {
 	restConfig, err := baseClient.ManagementConfig()
 	if err != nil {
 		return nil, err
@@ -172,7 +226,13 @@ func DialInstance(baseClient client.Client, workspace *managementv1.DevPodWorksp
 
 // UpdateInstance diffs two versions of a DevPodWorkspaceInstance, applies changes via a patch to reduce conflicts.
 // Afterwards it waits until the instance is ready to be used.
-func UpdateInstance(ctx context.Context, client client.Client, oldInstance *managementv1.DevPodWorkspaceInstance, newInstance *managementv1.DevPodWorkspaceInstance, log log.Logger) (*managementv1.DevPodWorkspaceInstance, error) {
+func UpdateInstance(
+	ctx context.Context,
+	client client.Client,
+	oldInstance *managementv1.DevPodWorkspaceInstance,
+	newInstance *managementv1.DevPodWorkspaceInstance,
+	log log.Logger,
+) (*managementv1.DevPodWorkspaceInstance, error) {
 	managementClient, err := client.Management()
 	if err != nil {
 		return nil, err
@@ -203,7 +263,12 @@ func UpdateInstance(ctx context.Context, client client.Client, oldInstance *mana
 	return WaitForInstance(ctx, client, res, log)
 }
 
-func WaitForInstance(ctx context.Context, client client.Client, instance *managementv1.DevPodWorkspaceInstance, log log.Logger) (*managementv1.DevPodWorkspaceInstance, error) {
+func WaitForInstance(
+	ctx context.Context,
+	client client.Client,
+	instance *managementv1.DevPodWorkspaceInstance,
+	log log.Logger,
+) (*managementv1.DevPodWorkspaceInstance, error) {
 	managementClient, err := client.Management()
 	if err != nil {
 		return nil, err
@@ -211,53 +276,74 @@ func WaitForInstance(ctx context.Context, client client.Client, instance *manage
 
 	var updatedInstance *managementv1.DevPodWorkspaceInstance
 	// we need to wait until instance is scheduled
-	err = wait.PollUntilContextTimeout(ctx, time.Second, 30*time.Second, true, func(ctx context.Context) (done bool, err error) {
-		updatedInstance, err = managementClient.Loft().ManagementV1().
-			DevPodWorkspaceInstances(instance.GetNamespace()).
-			Get(ctx, instance.GetName(), metav1.GetOptions{})
-		if err != nil {
-			return false, err
-		}
-		name := updatedInstance.GetName()
-		status := updatedInstance.Status
-
-		if !isReady(updatedInstance) {
-			log.Debugf("Workspace %s is in phase %s, waiting until its ready", name, status.Phase)
-			return false, nil
-		}
-
-		if !isTemplateSynced(updatedInstance) {
-			log.Debugf("Workspace template is not ready yet")
-			for _, cond := range updatedInstance.Status.Conditions {
-				if cond.Status != corev1.ConditionTrue {
-					log.Debugf("%s is %s (%s): %s", cond.Type, cond.Status, cond.Reason, cond.Message)
-				}
+	err = wait.PollUntilContextTimeout(
+		ctx,
+		time.Second,
+		30*time.Second,
+		true,
+		func(ctx context.Context) (done bool, err error) {
+			updatedInstance, err = managementClient.Loft().ManagementV1().
+				DevPodWorkspaceInstances(instance.GetNamespace()).
+				Get(ctx, instance.GetName(), metav1.GetOptions{})
+			if err != nil {
+				return false, err
 			}
-			return false, nil
-		}
+			name := updatedInstance.GetName()
+			status := updatedInstance.Status
 
-		log.Debugf("Workspace %s is ready", name)
-		return true, nil
-	})
+			if !isReady(updatedInstance) {
+				log.Debugf(
+					"Workspace %s is in phase %s, waiting until its ready",
+					name,
+					status.Phase,
+				)
+				return false, nil
+			}
+
+			if !isTemplateSynced(updatedInstance) {
+				log.Debugf("Workspace template is not ready yet")
+				for _, cond := range updatedInstance.Status.Conditions {
+					if cond.Status != corev1.ConditionTrue {
+						log.Debugf(
+							"%s is %s (%s): %s",
+							cond.Type,
+							cond.Status,
+							cond.Reason,
+							cond.Message,
+						)
+					}
+				}
+				return false, nil
+			}
+
+			log.Debugf("Workspace %s is ready", name)
+			return true, nil
+		},
+	)
 	if err != nil {
 		// let's build a proper error message here
-		msg := "Timed out waiting for workspace to get ready \n\n "
+		var msg strings.Builder
+		msg.WriteString("Timed out waiting for workspace to get ready \n\n ")
 		// basic status
-		msg += fmt.Sprintf("ready: %t\n", isReady(updatedInstance))
-		msg += fmt.Sprintf("template synced: %t\n", isTemplateSynced(updatedInstance))
-		msg += "\n"
+		fmt.Fprintf(&msg, "ready: %t\n", isReady(updatedInstance))
+		fmt.Fprintf(&msg, "template synced: %t\n", isTemplateSynced(updatedInstance))
+		msg.WriteString("\n")
 
 		// CRD conditions
-		msg += "Conditions:\n"
+		msg.WriteString("Conditions:\n")
 		for _, cond := range updatedInstance.Status.Conditions {
-			msg += fmt.Sprintf("%s is %s (%s): %s\n", cond.Type, cond.Status, cond.Reason, cond.Message)
+			fmt.Fprintf(&msg, "%s is %s (%s): %s\n",
+				cond.Type,
+				cond.Status,
+				cond.Reason,
+				cond.Message)
 		}
-		msg += "\n"
+		msg.WriteString("\n")
 
 		// error message, usually context timeout
-		msg += fmt.Sprintf("Error: %s", err.Error())
+		fmt.Fprintf(&msg, "Error: %s", err.Error())
 
-		return nil, errors.New(msg)
+		return nil, errors.New(msg.String())
 	}
 
 	return updatedInstance, nil

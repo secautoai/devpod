@@ -6,8 +6,7 @@ import (
 	"io"
 	"os"
 
-	storagev1 "github.com/loft-sh/api/v4/pkg/apis/storage/v1"
-
+	storagev1 "github.com/skevetter/api/pkg/apis/storage/v1"
 	"github.com/skevetter/devpod/cmd/pro/flags"
 	"github.com/skevetter/devpod/pkg/platform"
 	"github.com/skevetter/devpod/pkg/platform/client"
@@ -16,14 +15,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// StopCmd holds the cmd flags
+// StopCmd holds the cmd flags.
 type StopCmd struct {
 	*flags.GlobalFlags
 
 	Log log.Logger
 }
 
-// NewStopCmd creates a new command
+// NewStopCmd creates a new command.
 func NewStopCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &StopCmd{
 		GlobalFlags: globalFlags,
@@ -42,7 +41,12 @@ func NewStopCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	return c
 }
 
-func (cmd *StopCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func (cmd *StopCmd) Run(
+	ctx context.Context,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	baseClient, err := client.InitClientFromPath(ctx, cmd.Config)
 	if err != nil {
 		return err
@@ -52,14 +56,21 @@ func (cmd *StopCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Writer, 
 	if err != nil {
 		return err
 	}
-	workspace, err := platform.FindInstanceInProject(ctx, baseClient, info.UID, info.ProjectName)
+	opts := platform.FindInstanceOptions{UID: info.UID, ProjectName: info.ProjectName}
+	workspace, err := platform.FindInstance(ctx, baseClient, opts)
 	if err != nil {
 		return err
 	} else if workspace == nil {
 		return fmt.Errorf("couldn't find workspace")
 	}
 
-	conn, err := platform.DialInstance(baseClient, workspace, "stop", platform.OptionsFromEnv(storagev1.DevPodFlagsStop), cmd.Log)
+	conn, err := platform.DialInstance(
+		baseClient,
+		workspace,
+		"stop",
+		platform.OptionsFromEnv(storagev1.DevPodFlagsStop),
+		cmd.Log,
+	)
 	if err != nil {
 		return err
 	}

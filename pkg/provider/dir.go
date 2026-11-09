@@ -21,7 +21,7 @@ const (
 	ProInstanceConfigFile = "pro.json"
 	ProviderConfigFile    = "provider.json"
 
-	DaemonStateFile = "devpod_ts.state"
+	DaemonStateFile = config.BinaryName + "_ts.state"
 )
 
 func GetProInstancesDir(context string) (string, error) {
@@ -132,11 +132,19 @@ func GetProInstanceDir(context, proInstanceHost string) (string, error) {
 		return "", err
 	}
 
-	return filepath.Join(configDir, "contexts", context, "pro", ToProInstanceID(proInstanceHost)), nil
+	return filepath.Join(
+		configDir,
+		"contexts",
+		context,
+		"pro",
+		ToProInstanceID(proInstanceHost),
+	), nil
 }
 
-var proInstanceIDRegEx1 = regexp.MustCompile(`[^\w\-]`)
-var proInstanceIDRegEx2 = regexp.MustCompile(`[^0-9a-z\-]+`)
+var (
+	proInstanceIDRegEx1 = regexp.MustCompile(`[^\w\-]`)
+	proInstanceIDRegEx2 = regexp.MustCompile(`[^0-9a-z\-]+`)
+)
 
 func ToProInstanceID(url string) string {
 	url = strings.TrimPrefix(url, "https://")
@@ -172,7 +180,8 @@ func SaveProviderConfig(context string, provider *ProviderConfig) error {
 		return err
 	}
 
-	err = os.MkdirAll(providerDir, 0755)
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err = os.MkdirAll(providerDir, 0o755)
 	if err != nil {
 		return err
 	}
@@ -183,7 +192,7 @@ func SaveProviderConfig(context string, provider *ProviderConfig) error {
 	}
 
 	providerConfigFile := filepath.Join(providerDir, ProviderConfigFile)
-	err = os.WriteFile(providerConfigFile, providerDirBytes, 0600)
+	err = os.WriteFile(providerConfigFile, providerDirBytes, 0o600)
 	if err != nil {
 		return err
 	}
@@ -197,7 +206,8 @@ func SaveProInstanceConfig(context string, proInstance *ProInstance) error {
 		return err
 	}
 
-	err = os.MkdirAll(providerDir, 0755)
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err = os.MkdirAll(providerDir, 0o755)
 	if err != nil {
 		return err
 	}
@@ -208,7 +218,7 @@ func SaveProInstanceConfig(context string, proInstance *ProInstance) error {
 	}
 
 	proInstanceConfigFile := filepath.Join(providerDir, ProInstanceConfigFile)
-	err = os.WriteFile(proInstanceConfigFile, proInstanceBytes, 0600)
+	err = os.WriteFile(proInstanceConfigFile, proInstanceBytes, 0o600)
 	if err != nil {
 		return err
 	}
@@ -222,7 +232,8 @@ func SaveWorkspaceResult(workspace *Workspace, result *config2.Result) error {
 		return err
 	}
 
-	err = os.MkdirAll(workspaceDir, 0755)
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err = os.MkdirAll(workspaceDir, 0o755)
 	if err != nil {
 		return err
 	}
@@ -233,7 +244,7 @@ func SaveWorkspaceResult(workspace *Workspace, result *config2.Result) error {
 	}
 
 	workspaceResultFile := filepath.Join(workspaceDir, WorkspaceResultFile)
-	err = os.WriteFile(workspaceResultFile, resultBytes, 0600)
+	err = os.WriteFile(workspaceResultFile, resultBytes, 0o600)
 	if err != nil {
 		return err
 	}
@@ -247,7 +258,8 @@ func SaveWorkspaceConfig(workspace *Workspace) error {
 		return err
 	}
 
-	err = os.MkdirAll(workspaceDir, 0755)
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err = os.MkdirAll(workspaceDir, 0o755)
 	if err != nil {
 		return err
 	}
@@ -258,7 +270,8 @@ func SaveWorkspaceConfig(workspace *Workspace) error {
 	}
 
 	workspaceConfigFile := filepath.Join(workspaceDir, WorkspaceConfigFile)
-	err = os.WriteFile(workspaceConfigFile, workspaceConfigBytes, 0644)
+	// #nosec G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err = os.WriteFile(workspaceConfigFile, workspaceConfigBytes, 0o644)
 	if err != nil {
 		return err
 	}
@@ -272,7 +285,8 @@ func SaveMachineConfig(machine *Machine) error {
 		return err
 	}
 
-	err = os.MkdirAll(machineDir, 0755)
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+	err = os.MkdirAll(machineDir, 0o755)
 	if err != nil {
 		return err
 	}
@@ -283,7 +297,7 @@ func SaveMachineConfig(machine *Machine) error {
 	}
 
 	machineConfigFile := filepath.Join(machineDir, MachineConfigFile)
-	err = os.WriteFile(machineConfigFile, machineConfigBytes, 0600)
+	err = os.WriteFile(machineConfigFile, machineConfigBytes, 0o600)
 	if err != nil {
 		return err
 	}

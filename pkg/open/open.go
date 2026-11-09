@@ -7,20 +7,29 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	devpodhttp "github.com/skevetter/devpod/pkg/http"
 	"github.com/skevetter/log"
 	"github.com/skratchdot/open-golang/open"
 )
 
-// Open opens the given url in the default application, retrying every second until the context is done
+// Run opens the given URL in the default application.
+// When running inside a Linux AppImage, it sanitizes the environment
+// to avoid library conflicts before spawning xdg-open.
+func Run(url string) error {
+	if isAppImage() {
+		return openURLSanitized(url)
+	}
+	return open.Run(url)
+}
+
+// Open opens the given url in the default application, retrying every second until the context is done.
 func Open(ctx context.Context, url string, log log.Logger) error {
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-time.After(time.Second):
-			err := tryOpen(ctx, url, open.Start, log)
+			err := tryOpen(ctx, url, Run, log)
 			if err == nil {
 				return nil
 			}
@@ -28,7 +37,7 @@ func Open(ctx context.Context, url string, log log.Logger) error {
 	}
 }
 
-// JLabDesktop opens the given url in the JLab desktop application, retrying every second until the context is done
+// JLabDesktop opens the given url in the JLab desktop application, retrying every second until the context is done.
 func JLabDesktop(ctx context.Context, url string, log log.Logger) error {
 	for {
 		select {
@@ -64,16 +73,17 @@ func tryOpen(ctx context.Context, url string, fn func(string) error, log log.Log
 	if resp != nil {
 		defer func() { _ = resp.Body.Close() }()
 
-		if resp.StatusCode != http.StatusBadGateway && resp.StatusCode != http.StatusServiceUnavailable {
+		if resp.StatusCode != http.StatusBadGateway &&
+			resp.StatusCode != http.StatusServiceUnavailable {
 			select {
 			case <-ctx.Done():
 				return nil
 			case <-time.After(time.Second):
 			}
-			_ = fn(url)
-			log.WithFields(logrus.Fields{
-				"url": url,
-			}).Done("opened url")
+			if err := fn(url); err != nil {
+				return fmt.Errorf("open url: %w", err)
+			}
+			log.Donef("opened url: url=%s", url)
 			return nil
 		}
 	}

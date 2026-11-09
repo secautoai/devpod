@@ -9,9 +9,8 @@ import (
 
 	"github.com/moby/patternmatcher"
 	"github.com/moby/patternmatcher/ignorefile"
-	"github.com/sirupsen/logrus"
+	pkgconfig "github.com/skevetter/devpod/pkg/config"
 	util "github.com/skevetter/devpod/pkg/util/hash"
-
 	"github.com/skevetter/log"
 	"github.com/skevetter/log/hash"
 )
@@ -58,15 +57,16 @@ func CalculatePrebuildHash(params PrebuildHashParams) (string, error) {
 	}
 
 	combined := arch + string(configJSON) + params.DockerfileContent + contextHash
-	finalHash := "devpod-" + hash.String(combined)[:32]
+	finalHash := pkgconfig.BinaryName + "-" + hash.String(combined)[:32]
 
-	params.Log.WithFields(logrus.Fields{
-		"architecture": arch,
-		"contextHash":  contextHash,
-		"finalHash":    finalHash,
-		"excludeCount": len(excludes),
-		"includeCount": len(includes),
-	}).Debug("prebuild hash calculated")
+	params.Log.Debugf(
+		"prebuild hash calculated: architecture=%s, contextHash=%s, finalHash=%s, excludeCount=%v, includeCount=%v",
+		arch,
+		contextHash,
+		finalHash,
+		len(excludes),
+		len(includes),
+	)
 
 	return finalHash, nil
 }
@@ -149,7 +149,10 @@ func readDockerignore(contextDir string, dockerfile string) ([]string, error) {
 	return ensureDockerIgnoreAndDockerFile(excludes, dockerfile, dockerignorefilepath), nil
 }
 
-func ensureDockerIgnoreAndDockerFile(excludes []string, dockerfile, dockerignorefilepath string) []string {
+func ensureDockerIgnoreAndDockerFile(
+	excludes []string,
+	dockerfile, dockerignorefilepath string,
+) []string {
 	_, dockerignorefile := filepath.Split(dockerignorefilepath)
 	if keep, _ := patternmatcher.MatchesOrParentMatches(dockerignorefile, excludes); keep {
 		excludes = append(excludes, "!"+dockerignorefile)

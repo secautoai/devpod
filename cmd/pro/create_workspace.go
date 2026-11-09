@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// CreateWorkspaceCmd holds the cmd flags
+// CreateWorkspaceCmd holds the cmd flags.
 type CreateWorkspaceCmd struct {
 	*flags.GlobalFlags
 	Log log.Logger
@@ -24,7 +24,7 @@ type CreateWorkspaceCmd struct {
 	Instance string
 }
 
-// NewCreateWorkspaceCmd creates a new command
+// NewCreateWorkspaceCmd creates a new command.
 func NewCreateWorkspaceCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &CreateWorkspaceCmd{
 		GlobalFlags: globalFlags,
@@ -35,7 +35,13 @@ func NewCreateWorkspaceCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 		Short:  "Create workspace instance",
 		Hidden: true,
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
-			devPodConfig, provider, err := findProProvider(cobraCmd.Context(), cmd.Context, cmd.Provider, cmd.Host, cmd.Log)
+			devPodConfig, provider, err := findProProvider(
+				cobraCmd.Context(),
+				cmd.Context,
+				cmd.Provider,
+				cmd.Host,
+				cmd.Log,
+			)
 			if err != nil {
 				return err
 			}
@@ -52,7 +58,11 @@ func NewCreateWorkspaceCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	return c
 }
 
-func (cmd *CreateWorkspaceCmd) Run(ctx context.Context, devPodConfig *config.Config, provider *provider.ProviderConfig) error {
+func (cmd *CreateWorkspaceCmd) Run(
+	ctx context.Context,
+	devPodConfig *config.Config,
+	provider *provider.ProviderConfig,
+) error {
 	opts := devPodConfig.ProviderOptions(provider.Name)
 	opts[platform.WorkspaceInstanceEnv] = config.OptionValue{Value: cmd.Instance}
 

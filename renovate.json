@@ -10,6 +10,7 @@
   "dependencyDashboard": false,
   "prConcurrentLimit": 1,
   "platformAutomerge": true,
+  "postUpdateOptions": ["gomodTidy"],
   "packageRules": [
     {
       "matchUpdateTypes": ["major"],
@@ -51,7 +52,7 @@
     },
     {
       "matchPackageNames": ["github.com/loft-sh/api/v4"],
-      "allowedVersions": "v4.3.0-devpod.alpha.31"
+      "allowedVersions": "v4.4.0"
     },
     {
       "matchPackageNames": ["github.com/tailscale/tailscale"],
@@ -62,6 +63,10 @@
       "allowedVersions": "v2.4.0"
     },
     {
+      "matchPackageNames": ["@loft-enterprise/client"],
+      "allowedVersions": "<=4.4.1"
+    },
+    {
       "matchPackageNames": [
         "actions/upload-artifact",
         "actions/download-artifact"
@@ -69,6 +74,12 @@
       "matchFileNames": [".github/workflows/act.yml"],
       "allowedVersions": "v4",
       "description": "pin to v4 for act support in act.yml workflow only"
+    },
+    {
+      "matchPackageNames": ["ubuntu"],
+      "matchManagers": ["github-actions"],
+      "enabled": false,
+      "description": "Do not automatically update Ubuntu runner versions"
     }
   ]
 }

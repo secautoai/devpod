@@ -8,7 +8,6 @@ import (
 	"github.com/skevetter/devpod/pkg/command"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/ide"
-	"github.com/skevetter/devpod/pkg/single"
 	"github.com/skevetter/log"
 )
 
@@ -20,7 +19,7 @@ const (
 var Options = ide.Options{
 	BindAddressOption: {
 		Name:        BindAddressOption,
-		Description: "The address to bind the server to locally. E.g. 0.0.0.0:12345",
+		Description: "The address to bind the server to locally, e.g. 0.0.0.0:12345",
 		Default:     "",
 	},
 	OpenOption: {
@@ -36,7 +35,12 @@ var Options = ide.Options{
 
 const DefaultServerPort = 10700
 
-func NewJupyterNotebookServer(workspaceFolder string, userName string, values map[string]config.OptionValue, log log.Logger) *JupyterNotbookServer {
+func NewJupyterNotebookServer(
+	workspaceFolder string,
+	userName string,
+	values map[string]config.OptionValue,
+	log log.Logger,
+) *JupyterNotbookServer {
 	return &JupyterNotbookServer{
 		values:          values,
 		workspaceFolder: workspaceFolder,
@@ -73,7 +77,9 @@ func (o *JupyterNotbookServer) installNotebook() error {
 	} else if command.ExistsForUser("pip", o.userName) {
 		baseCommand = "pip"
 	} else {
-		return fmt.Errorf("seems like neither pip3 nor pip exists, please make sure to install python correctly")
+		return fmt.Errorf(
+			"seems like neither pip3 nor pip exists, please make sure to install python correctly",
+		)
 	}
 
 	// install notebook command
@@ -89,7 +95,10 @@ func (o *JupyterNotbookServer) installNotebook() error {
 	o.log.Infof("installing jupyter notebook")
 	out, err := exec.Command(args[0], args[1:]...).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("error installing jupyter notebook: %w", command.WrapCommandError(out, err))
+		return fmt.Errorf(
+			"error installing jupyter notebook: %w",
+			command.WrapCommandError(out, err),
+		)
 	}
 
 	o.log.Info("installed jupyter notebook")
@@ -97,9 +106,14 @@ func (o *JupyterNotbookServer) installNotebook() error {
 }
 
 func (o *JupyterNotbookServer) Start() error {
-	return single.Single("jupyter.pid", func() (*exec.Cmd, error) {
+	return command.StartBackgroundOnce("jupyter", func() (*exec.Cmd, error) {
 		o.log.Infof("Starting jupyter notebook in background...")
-		runCommand := fmt.Sprintf("jupyter notebook --ip='*' --NotebookApp.notebook_dir='%s' --NotebookApp.token='' --NotebookApp.password='' --no-browser --port '%s' --allow-root", o.workspaceFolder, strconv.Itoa(DefaultServerPort))
+		runCommand := fmt.Sprintf(
+			"jupyter notebook --ip='*' --NotebookApp.notebook_dir='%s' --NotebookApp.token='' "+
+				"--NotebookApp.password='' --no-browser --port '%s' --allow-root",
+			o.workspaceFolder,
+			strconv.Itoa(DefaultServerPort),
+		)
 		args := []string{}
 		if o.userName != "" {
 			args = append(args, "su", o.userName, "-w", "SSH_AUTH_SOCK", "-l", "-c", runCommand)

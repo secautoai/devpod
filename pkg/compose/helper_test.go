@@ -70,3 +70,13 @@ func (s *HelperTestSuite) TestParseVersion() {
 		})
 	}
 }
+
+func (s *HelperTestSuite) TestParseVersionWithPodmanWarning() {
+	// Validates that parseVersion can extract the version even when the input
+	// contains extra content (e.g., if warnings were accidentally captured in stdout).
+	cmdOutput := ">>>> Executing external compose provider \"/home/linuxbrew/.linuxbrew/bin/docker-compose\". " +
+		"Please see podman-compose(1) for how to disable this message. <<<<\n\n5.1.0\n"
+	v, err := parseVersion(cmdOutput)
+	s.NoError(err)
+	s.Equal("5.1.0", v.String())
+}

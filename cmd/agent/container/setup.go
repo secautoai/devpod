@@ -31,20 +31,21 @@ import (
 	"github.com/skevetter/devpod/pkg/dockercredentials"
 	"github.com/skevetter/devpod/pkg/extract"
 	"github.com/skevetter/devpod/pkg/git"
+	"github.com/skevetter/devpod/pkg/ide/codeserver"
 	"github.com/skevetter/devpod/pkg/ide/fleet"
 	"github.com/skevetter/devpod/pkg/ide/jetbrains"
 	"github.com/skevetter/devpod/pkg/ide/jupyter"
 	"github.com/skevetter/devpod/pkg/ide/openvscode"
 	"github.com/skevetter/devpod/pkg/ide/rstudio"
 	"github.com/skevetter/devpod/pkg/ide/vscode"
+	"github.com/skevetter/devpod/pkg/ide/vscodeweb"
 	provider2 "github.com/skevetter/devpod/pkg/provider"
-	"github.com/skevetter/devpod/pkg/single"
 	"github.com/skevetter/devpod/pkg/ts"
 	"github.com/skevetter/log"
 	"github.com/spf13/cobra"
 )
 
-// SetupContainerCmd holds the cmd flags
+// SetupContainerCmd holds the cmd flags.
 type SetupContainerCmd struct {
 	*flags.GlobalFlags
 
@@ -58,7 +59,7 @@ type SetupContainerCmd struct {
 	WorkspaceHost          string
 }
 
-// NewSetupContainerCmd creates a new command
+// NewSetupContainerCmd creates a new command.
 func NewSetupContainerCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &SetupContainerCmd{
 		GlobalFlags: flags,
@@ -67,17 +68,24 @@ func NewSetupContainerCmd(flags *flags.GlobalFlags) *cobra.Command {
 		Use:   "setup",
 		Short: "Sets up a container",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, args []string) error {
-			return cmd.Run(context.Background())
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			return cmd.Run(cobraCmd.Context())
 		},
 	}
-	setupContainerCmd.Flags().BoolVar(&cmd.StreamMounts, "stream-mounts", false, "If true, will try to stream the bind mounts from the host")
-	setupContainerCmd.Flags().BoolVar(&cmd.ChownWorkspace, "chown-workspace", false, "If DevPod should chown the workspace to the remote user")
-	setupContainerCmd.Flags().BoolVar(&cmd.InjectGitCredentials, "inject-git-credentials", false, "If DevPod should inject git credentials during setup")
-	setupContainerCmd.Flags().StringVar(&cmd.ContainerWorkspaceInfo, "container-workspace-info", "", "The container workspace info")
-	setupContainerCmd.Flags().StringVar(&cmd.SetupInfo, "setup-info", "", "The container setup info")
+	setupContainerCmd.Flags().
+		BoolVar(&cmd.StreamMounts, "stream-mounts", false, "If true, will try to stream the bind mounts from the host")
+	setupContainerCmd.Flags().
+		BoolVar(&cmd.ChownWorkspace, "chown-workspace", false, "If DevPod should chown the workspace to the remote user")
+	setupContainerCmd.Flags().
+		BoolVar(&cmd.InjectGitCredentials, "inject-git-credentials", false,
+			"If DevPod should inject git credentials during setup")
+	setupContainerCmd.Flags().
+		StringVar(&cmd.ContainerWorkspaceInfo, "container-workspace-info", "", "The container workspace info")
+	setupContainerCmd.Flags().
+		StringVar(&cmd.SetupInfo, "setup-info", "", "The container setup info")
 	setupContainerCmd.Flags().StringVar(&cmd.AccessKey, "access-key", "", "Access Key to use")
-	setupContainerCmd.Flags().StringVar(&cmd.WorkspaceHost, "workspace-host", "", "Workspace hostname to use")
+	setupContainerCmd.Flags().
+		StringVar(&cmd.WorkspaceHost, "workspace-host", "", "Workspace hostname to use")
 	setupContainerCmd.Flags().StringVar(&cmd.PlatformHost, "platform-host", "", "Platform host")
 	_ = setupContainerCmd.MarkFlagRequired("setup-info")
 	return setupContainerCmd
@@ -91,11 +99,19 @@ type setupContext struct {
 	logger        log.Logger
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *SetupContainerCmd) Run(ctx context.Context) error {
 	tunnelClient, logger, err := cmd.initializeTunnelClient(ctx)
 	if err != nil {
 		return err
+	}
+
+	// The tunnel logger forwards messages over the tunnel asynchronously, so
+	// flush before returning to make sure the final log lines (e.g. the last
+	// stderr output of a failing lifecycle hook) reach the client before the
+	// connection is torn down. ctx is still alive while this defer runs.
+	if f, ok := logger.(tunnelserver.Flusher); ok {
+		defer f.Flush()
 	}
 
 	workspaceInfo, setupInfo, err := cmd.parseWorkspaceAndSetupInfo(logger)
@@ -115,11 +131,7 @@ func (cmd *SetupContainerCmd) Run(ctx context.Context) error {
 		return err
 	}
 
-	if err := cmd.finalizeSetup(sctx); err != nil {
-		return err
-	}
-
-	return cmd.sendSetupResult(ctx, setupInfo, tunnelClient)
+	return cmd.finalizeSetup(sctx)
 }
 
 func (cmd *SetupContainerCmd) prepareWorkspace(sctx *setupContext) error {
@@ -135,11 +147,19 @@ func (cmd *SetupContainerCmd) prepareWorkspace(sctx *setupContext) error {
 		Debug:             cmd.Debug,
 		Log:               sctx.logger,
 		ConfigureCredentialsFunc: func(ctx context.Context) (string, error) {
-			serverPort, err := credentials.StartCredentialsServer(ctx, sctx.tunnelClient, sctx.logger)
+			serverPort, err := credentials.StartCredentialsServer(
+				ctx,
+				sctx.tunnelClient,
+				sctx.logger,
+			)
 			if err != nil {
 				return "", err
 			}
-			return dockercredentials.ConfigureCredentialsDockerless(agent.DockerlessCredentialsPath, serverPort, sctx.logger)
+			return dockercredentials.ConfigureCredentialsDockerless(
+				agent.DockerlessCredentialsPath,
+				serverPort,
+				sctx.logger,
+			)
 		},
 	}); err != nil {
 		return fmt.Errorf("dockerless build: %w", err)
@@ -156,7 +176,12 @@ func (cmd *SetupContainerCmd) prepareWorkspace(sctx *setupContext) error {
 	)
 
 	// Clone repository before cleaning up git credentials
-	cloneErr := cmd.cloneRepositoryIfNeeded(sctx.ctx, sctx.workspaceInfo, sctx.setupInfo, sctx.logger)
+	cloneErr := cmd.cloneRepositoryIfNeeded(
+		sctx.ctx,
+		sctx.workspaceInfo,
+		sctx.setupInfo,
+		sctx.logger,
+	)
 
 	// Clean up git credentials after cloning
 	if cleanupFunc != nil {
@@ -167,16 +192,16 @@ func (cmd *SetupContainerCmd) prepareWorkspace(sctx *setupContext) error {
 }
 
 func (cmd *SetupContainerCmd) finalizeSetup(sctx *setupContext) error {
-	err := setup.SetupContainer(
-		sctx.ctx,
-		sctx.setupInfo,
-		sctx.workspaceInfo.CLIOptions.WorkspaceEnv,
-		cmd.ChownWorkspace,
-		&sctx.workspaceInfo.CLIOptions.Platform,
-		sctx.tunnelClient,
-		sctx.logger,
-	)
-	if err != nil {
+	cfg := &setup.ContainerSetupConfig{
+		SetupInfo:         sctx.setupInfo,
+		ExtraWorkspaceEnv: sctx.workspaceInfo.CLIOptions.WorkspaceEnv,
+		ChownProjects:     cmd.ChownWorkspace,
+		PlatformOptions:   &sctx.workspaceInfo.CLIOptions.Platform,
+		TunnelClient:      sctx.tunnelClient,
+		Log:               sctx.logger,
+	}
+
+	if err := setup.SetupContainerPreAttach(sctx.ctx, cfg); err != nil {
 		return err
 	}
 
@@ -184,10 +209,24 @@ func (cmd *SetupContainerCmd) finalizeSetup(sctx *setupContext) error {
 		return err
 	}
 
-	return cmd.startContainerDaemon(sctx.workspaceInfo, sctx.logger)
+	if err := cmd.startContainerDaemon(sctx.workspaceInfo, sctx.logger); err != nil {
+		return err
+	}
+
+	// Launch postAttachCommand as a detached background process before sending
+	// the result. Once sendSetupResult returns, the client tears down the SSH
+	// tunnel which kills this process, so postAttach must already be running
+	// independently.
+	if err := cmd.startPostAttachHooks(sctx); err != nil {
+		sctx.logger.Errorf("failed to start postAttachCommand: %v", err)
+	}
+
+	return cmd.sendSetupResult(sctx.ctx, sctx.setupInfo, sctx.tunnelClient)
 }
 
-func (cmd *SetupContainerCmd) initializeTunnelClient(ctx context.Context) (tunnel.TunnelClient, log.Logger, error) {
+func (cmd *SetupContainerCmd) initializeTunnelClient(
+	ctx context.Context,
+) (tunnel.TunnelClient, log.Logger, error) {
 	tunnelClient, err := tunnelserver.NewTunnelClient(os.Stdin, os.Stdout, true, 0)
 	if err != nil {
 		return nil, nil, fmt.Errorf("initializing tunnel client: %w", err)
@@ -241,7 +280,13 @@ func (cmd *SetupContainerCmd) syncMounts(sctx *setupContext) error {
 			}
 		}
 
-		if err := streamMount(sctx.ctx, sctx.workspaceInfo, m, sctx.tunnelClient, sctx.logger); err != nil {
+		if err := streamMount(
+			sctx.ctx,
+			sctx.workspaceInfo,
+			m,
+			sctx.tunnelClient,
+			sctx.logger,
+		); err != nil {
 			return err
 		}
 	}
@@ -321,15 +366,50 @@ func (cmd *SetupContainerCmd) startContainerDaemon(
 		return nil
 	}
 
-	return single.Single("devpod.daemon.pid", func() (*exec.Cmd, error) {
-		logger.Debugf("start devpod container daemon with inactivity timeout %s", workspaceInfo.ContainerTimeout)
+	return command.StartBackgroundOnce(config2.BinaryName+".daemon", func() (*exec.Cmd, error) {
+		logger.Debugf(
+			"start %s container daemon with inactivity timeout %s",
+			config2.BinaryName,
+			workspaceInfo.ContainerTimeout,
+		)
 		binaryPath, err := os.Executable()
 		if err != nil {
 			return nil, err
 		}
 
 		//nolint:gosec // binaryPath is from os.Executable(), not user input
-		return exec.Command(binaryPath, "agent", "container", "daemon", "--timeout", workspaceInfo.ContainerTimeout), nil
+		return exec.Command(
+			binaryPath,
+			"agent",
+			"container",
+			"daemon",
+			"--timeout",
+			workspaceInfo.ContainerTimeout,
+		), nil
+	})
+}
+
+func (cmd *SetupContainerCmd) startPostAttachHooks(sctx *setupContext) error {
+	if len(sctx.setupInfo.MergedConfig.PostAttachCommands) == 0 {
+		return nil
+	}
+
+	return command.StartBackgroundOnce("devpod.post-attach", func() (*exec.Cmd, error) {
+		sctx.logger.Debugf("starting postAttachCommand as background process")
+		binaryPath, err := os.Executable()
+		if err != nil {
+			return nil, err
+		}
+
+		//nolint:gosec // binaryPath is from os.Executable(), not user input
+		return exec.Command(
+			binaryPath,
+			"agent",
+			"container",
+			"post-attach",
+			"--setup-info",
+			cmd.SetupInfo,
+		), nil
 	})
 }
 
@@ -362,7 +442,11 @@ func fillContainerEnv(setupInfo *config.Result) error {
 
 	// merge config
 	newMergedConfig := &config.MergedDevContainerConfig{}
-	err := config.SubstituteContainerEnv(config.ListToObject(os.Environ()), setupInfo.MergedConfig, newMergedConfig)
+	err := config.SubstituteContainerEnv(
+		config.ListToObject(os.Environ()),
+		setupInfo.MergedConfig,
+		newMergedConfig,
+	)
 	if err != nil {
 		return fmt.Errorf("substitute container env: %w", err)
 	}
@@ -370,7 +454,11 @@ func fillContainerEnv(setupInfo *config.Result) error {
 	return nil
 }
 
-func (cmd *SetupContainerCmd) installIDE(setupInfo *config.Result, ide *provider2.WorkspaceIDEConfig, log log.Logger) error {
+func (cmd *SetupContainerCmd) installIDE(
+	setupInfo *config.Result,
+	ide *provider2.WorkspaceIDEConfig,
+	log log.Logger,
+) error {
 	switch ide.Name {
 	case string(config2.IDENone):
 		return nil
@@ -388,43 +476,68 @@ func (cmd *SetupContainerCmd) installIDE(setupInfo *config.Result, ide *provider
 		return cmd.setupVSCode(setupInfo, ide.Options, vscode.FlavorWindsurf, log)
 	case string(config2.IDEAntigravity):
 		return cmd.setupVSCode(setupInfo, ide.Options, vscode.FlavorAntigravity, log)
+	case string(config2.IDEBob):
+		return cmd.setupVSCode(setupInfo, ide.Options, vscode.FlavorBob, log)
 	case string(config2.IDEOpenVSCode):
 		return cmd.setupOpenVSCode(setupInfo, ide.Options, log)
+	case string(config2.IDEVSCodeWeb):
+		return cmd.setupVSCodeWeb(setupInfo, ide.Options, log)
+	case string(config2.IDECodeServer):
+		return cmd.setupCodeServer(setupInfo, ide.Options, log)
 	case string(config2.IDEGoland):
-		return jetbrains.NewGolandServer(config.GetRemoteUser(setupInfo), ide.Options, log).Install(setupInfo)
+		return jetbrains.NewGolandServer(config.GetRemoteUser(setupInfo), ide.Options, log).
+			Install(setupInfo)
 	case string(config2.IDERustRover):
-		return jetbrains.NewRustRoverServer(config.GetRemoteUser(setupInfo), ide.Options, log).Install(setupInfo)
+		return jetbrains.NewRustRoverServer(config.GetRemoteUser(setupInfo), ide.Options, log).
+			Install(setupInfo)
 	case string(config2.IDEPyCharm):
-		return jetbrains.NewPyCharmServer(config.GetRemoteUser(setupInfo), ide.Options, log).Install(setupInfo)
+		return jetbrains.NewPyCharmServer(config.GetRemoteUser(setupInfo), ide.Options, log).
+			Install(setupInfo)
 	case string(config2.IDEPhpStorm):
-		return jetbrains.NewPhpStorm(config.GetRemoteUser(setupInfo), ide.Options, log).Install(setupInfo)
+		return jetbrains.NewPhpStorm(config.GetRemoteUser(setupInfo), ide.Options, log).
+			Install(setupInfo)
 	case string(config2.IDEIntellij):
-		return jetbrains.NewIntellij(config.GetRemoteUser(setupInfo), ide.Options, log).Install(setupInfo)
+		return jetbrains.NewIntellij(config.GetRemoteUser(setupInfo), ide.Options, log).
+			Install(setupInfo)
 	case string(config2.IDECLion):
-		return jetbrains.NewCLionServer(config.GetRemoteUser(setupInfo), ide.Options, log).Install(setupInfo)
+		return jetbrains.NewCLionServer(config.GetRemoteUser(setupInfo), ide.Options, log).
+			Install(setupInfo)
 	case string(config2.IDERider):
-		return jetbrains.NewRiderServer(config.GetRemoteUser(setupInfo), ide.Options, log).Install(setupInfo)
+		return jetbrains.NewRiderServer(config.GetRemoteUser(setupInfo), ide.Options, log).
+			Install(setupInfo)
 	case string(config2.IDERubyMine):
-		return jetbrains.NewRubyMineServer(config.GetRemoteUser(setupInfo), ide.Options, log).Install(setupInfo)
+		return jetbrains.NewRubyMineServer(config.GetRemoteUser(setupInfo), ide.Options, log).
+			Install(setupInfo)
 	case string(config2.IDEWebStorm):
-		return jetbrains.NewWebStormServer(config.GetRemoteUser(setupInfo), ide.Options, log).Install(setupInfo)
+		return jetbrains.NewWebStormServer(config.GetRemoteUser(setupInfo), ide.Options, log).
+			Install(setupInfo)
 	case string(config2.IDEDataSpell):
-		return jetbrains.NewDataSpellServer(config.GetRemoteUser(setupInfo), ide.Options, log).Install(setupInfo)
+		return jetbrains.NewDataSpellServer(config.GetRemoteUser(setupInfo), ide.Options, log).
+			Install(setupInfo)
 	case string(config2.IDEFleet):
-		return fleet.NewFleetServer(config.GetRemoteUser(setupInfo), ide.Options, log).Install(setupInfo.SubstitutionContext.ContainerWorkspaceFolder)
+		return fleet.NewFleetServer(config.GetRemoteUser(setupInfo), ide.Options, log).
+			Install(setupInfo.SubstitutionContext.ContainerWorkspaceFolder)
 	case string(config2.IDEJupyterNotebook):
-		return jupyter.NewJupyterNotebookServer(setupInfo.SubstitutionContext.ContainerWorkspaceFolder, config.GetRemoteUser(setupInfo), ide.Options, log).Install()
+		return jupyter.NewJupyterNotebookServer(
+			setupInfo.SubstitutionContext.ContainerWorkspaceFolder,
+			config.GetRemoteUser(setupInfo), ide.Options, log).
+			Install()
 	case string(config2.IDERStudio):
-		err := rstudio.NewRStudioServer(setupInfo.SubstitutionContext.ContainerWorkspaceFolder, config.GetRemoteUser(setupInfo), ide.Options, log).Install()
-		if err != nil {
-			log.Errorf("could not install rstudio with error: %w", err)
-		}
+		return rstudio.NewRStudioServer(
+			setupInfo.SubstitutionContext.ContainerWorkspaceFolder,
+			config.GetRemoteUser(setupInfo), ide.Options, log).
+			Install()
 	}
 
 	return nil
 }
 
-func (cmd *SetupContainerCmd) setupVSCode(setupInfo *config.Result, ideOptions map[string]config2.OptionValue, flavor vscode.Flavor, log log.Logger) error {
+func (cmd *SetupContainerCmd) setupVSCode(
+	setupInfo *config.Result,
+	ideOptions map[string]config2.OptionValue,
+	flavor vscode.Flavor,
+	log log.Logger,
+) error {
 	log.Debugf("setup %s", flavor.DisplayName())
 	vsCodeConfiguration := config.GetVSCodeConfiguration(setupInfo.MergedConfig)
 	log.Debugf("vscode settings: %v", vsCodeConfiguration.Settings)
@@ -460,24 +573,34 @@ func (cmd *SetupContainerCmd) setupVSCode(setupInfo *config.Result, ideOptions m
 		return nil
 	}
 
-	return single.Single(fmt.Sprintf("%s-async.pid", flavor), func() (*exec.Cmd, error) {
-		log.Infof("installing extensions in the background: %s", strings.Join(vsCodeConfiguration.Extensions, ","))
-		binaryPath, err := os.Executable()
-		if err != nil {
-			return nil, err
-		}
+	return command.StartBackgroundOnce(
+		fmt.Sprintf("%s-async", flavor),
+		func() (*exec.Cmd, error) {
+			log.Infof(
+				"installing extensions in the background: %s",
+				strings.Join(vsCodeConfiguration.Extensions, ","),
+			)
+			binaryPath, err := os.Executable()
+			if err != nil {
+				return nil, err
+			}
 
-		args := []string{
-			"agent", "container", "vscode-async",
-			"--setup-info", cmd.SetupInfo,
-			"--flavor", string(flavor),
-		}
+			args := []string{
+				"agent", "container", "vscode-async",
+				"--setup-info", cmd.SetupInfo,
+				"--flavor", string(flavor),
+			}
 
-		return exec.Command(binaryPath, args...), nil
-	})
+			//nolint:gosec // binaryPath is from os.Executable(), not user input
+			return exec.Command(binaryPath, args...), nil
+		})
 }
 
-func (cmd *SetupContainerCmd) setupOpenVSCode(setupInfo *config.Result, ideOptions map[string]config2.OptionValue, log log.Logger) error {
+func (cmd *SetupContainerCmd) setupOpenVSCode(
+	setupInfo *config.Result,
+	ideOptions map[string]config2.OptionValue,
+	log log.Logger,
+) error {
 	log.Debugf("setup openvscode")
 	vsCodeConfiguration := config.GetVSCodeConfiguration(setupInfo.MergedConfig)
 	settings := ""
@@ -491,7 +614,15 @@ func (cmd *SetupContainerCmd) setupOpenVSCode(setupInfo *config.Result, ideOptio
 	}
 
 	user := config.GetRemoteUser(setupInfo)
-	openVSCode := openvscode.NewOpenVSCodeServer(vsCodeConfiguration.Extensions, settings, user, "0.0.0.0", strconv.Itoa(openvscode.DefaultVSCodePort), ideOptions, log)
+	openVSCode := openvscode.NewOpenVSCodeServer(
+		vsCodeConfiguration.Extensions,
+		settings,
+		user,
+		"0.0.0.0",
+		strconv.Itoa(openvscode.DefaultVSCodePort),
+		ideOptions,
+		log,
+	)
 
 	// install open vscode
 	err := openVSCode.Install()
@@ -501,14 +632,24 @@ func (cmd *SetupContainerCmd) setupOpenVSCode(setupInfo *config.Result, ideOptio
 
 	// install extensions in background
 	if len(vsCodeConfiguration.Extensions) > 0 {
-		err = single.Single("openvscode-async.pid", func() (*exec.Cmd, error) {
-			log.Infof("installing extensions in the background: %s", strings.Join(vsCodeConfiguration.Extensions, ","))
+		err = command.StartBackgroundOnce("openvscode-async", func() (*exec.Cmd, error) {
+			log.Infof(
+				"installing extensions in the background: %s",
+				strings.Join(vsCodeConfiguration.Extensions, ","),
+			)
 			binaryPath, err := os.Executable()
 			if err != nil {
 				return nil, err
 			}
 
-			return exec.Command(binaryPath, "agent", "container", "openvscode-async", "--setup-info", cmd.SetupInfo), nil
+			return exec.Command(
+				binaryPath,
+				"agent",
+				"container",
+				"openvscode-async",
+				"--setup-info",
+				cmd.SetupInfo,
+			), nil
 		})
 		if err != nil {
 			return fmt.Errorf("install extensions: %w", err)
@@ -519,7 +660,128 @@ func (cmd *SetupContainerCmd) setupOpenVSCode(setupInfo *config.Result, ideOptio
 	return openVSCode.Start()
 }
 
-func configureSystemGitCredentials(ctx context.Context, client tunnel.TunnelClient, log log.Logger) (func(), error) {
+//nolint:dupl // setupVSCodeWeb and setupCodeServer are intentionally parallel but use distinct IDE packages
+func (cmd *SetupContainerCmd) setupVSCodeWeb(
+	setupInfo *config.Result,
+	ideOptions map[string]config2.OptionValue,
+	log log.Logger,
+) error {
+	log.Debugf("setup vscode-web")
+	vsCodeConfiguration := config.GetVSCodeConfiguration(setupInfo.MergedConfig)
+	settings := ""
+	if len(vsCodeConfiguration.Settings) > 0 {
+		out, err := json.Marshal(vsCodeConfiguration.Settings)
+		if err != nil {
+			return err
+		}
+		settings = string(out)
+	}
+
+	user := config.GetRemoteUser(setupInfo)
+	// Bind to loopback: DevPod's tunnel dials localhost inside the container,
+	// so there's no need to expose the IDE on all container interfaces.
+	server := vscodeweb.NewVSCodeWebServer(
+		vsCodeConfiguration.Extensions,
+		settings,
+		user,
+		"127.0.0.1",
+		strconv.Itoa(vscodeweb.DefaultVSCodePort),
+		ideOptions,
+		log,
+	)
+
+	if err := server.Install(); err != nil {
+		return err
+	}
+
+	if len(vsCodeConfiguration.Extensions) > 0 {
+		err := command.StartBackgroundOnce("vscode-web-async", func() (*exec.Cmd, error) {
+			log.Infof(
+				"installing extensions in the background: %s",
+				strings.Join(vsCodeConfiguration.Extensions, ","),
+			)
+			binaryPath, err := os.Executable()
+			if err != nil {
+				return nil, err
+			}
+			//nolint:gosec // binaryPath is from os.Executable(), not user input
+			return exec.Command(
+				binaryPath, "agent", "container", "vscodeweb-async",
+				"--setup-info", cmd.SetupInfo,
+			), nil
+		})
+		if err != nil {
+			return fmt.Errorf("install extensions: %w", err)
+		}
+	}
+
+	return server.Start()
+}
+
+//nolint:dupl // setupCodeServer and setupVSCodeWeb are intentionally parallel but use distinct IDE packages
+func (cmd *SetupContainerCmd) setupCodeServer(
+	setupInfo *config.Result,
+	ideOptions map[string]config2.OptionValue,
+	log log.Logger,
+) error {
+	log.Debugf("setup code-server")
+	vsCodeConfiguration := config.GetVSCodeConfiguration(setupInfo.MergedConfig)
+	settings := ""
+	if len(vsCodeConfiguration.Settings) > 0 {
+		out, err := json.Marshal(vsCodeConfiguration.Settings)
+		if err != nil {
+			return err
+		}
+		settings = string(out)
+	}
+
+	user := config.GetRemoteUser(setupInfo)
+	// Bind to loopback: DevPod's tunnel dials localhost inside the container,
+	// and code-server runs with --auth none, so it must not be exposed on
+	// other container interfaces.
+	server := codeserver.NewCodeServerServer(
+		vsCodeConfiguration.Extensions,
+		settings,
+		user,
+		"127.0.0.1",
+		strconv.Itoa(codeserver.DefaultVSCodePort),
+		ideOptions,
+		log,
+	)
+
+	if err := server.Install(); err != nil {
+		return err
+	}
+
+	if len(vsCodeConfiguration.Extensions) > 0 {
+		err := command.StartBackgroundOnce("code-server-async", func() (*exec.Cmd, error) {
+			log.Infof(
+				"installing extensions in the background: %s",
+				strings.Join(vsCodeConfiguration.Extensions, ","),
+			)
+			binaryPath, err := os.Executable()
+			if err != nil {
+				return nil, err
+			}
+			//nolint:gosec // binaryPath is from os.Executable(), not user input
+			return exec.Command(
+				binaryPath, "agent", "container", "codeserver-async",
+				"--setup-info", cmd.SetupInfo,
+			), nil
+		})
+		if err != nil {
+			return fmt.Errorf("install extensions: %w", err)
+		}
+	}
+
+	return server.Start()
+}
+
+func configureSystemGitCredentials(
+	ctx context.Context,
+	client tunnel.TunnelClient,
+	log log.Logger,
+) (func(), error) {
 	if !command.Exists("git") {
 		return nil, errors.New("git not found")
 	}
@@ -535,16 +797,19 @@ func configureSystemGitCredentials(ctx context.Context, client tunnel.TunnelClie
 	}
 
 	gitCredentials := fmt.Sprintf("!'%s' agent git-credentials --port %d", binaryPath, serverPort)
-	_ = os.Setenv("DEVPOD_GIT_HELPER_PORT", strconv.Itoa(serverPort))
+	_ = os.Setenv(config2.EnvGitHelperPort, strconv.Itoa(serverPort))
 
-	err = git.CommandContext(ctx, git.GetDefaultExtraEnv(false), "config", "--system", "--add", "credential.helper", gitCredentials).Run()
+	err = git.CommandContext(ctx, git.GetDefaultExtraEnv(false), "config", "--system", "--add",
+		"credential.helper", gitCredentials).
+		Run()
 	if err != nil {
 		return nil, fmt.Errorf("add git credential helper: %w", err)
 	}
 
 	cleanup := func() {
 		log.Debug("unset setup system credential helper")
-		err = git.CommandContext(ctx, git.GetDefaultExtraEnv(false), "config", "--system", "--unset", "credential.helper").Run()
+		err = git.CommandContext(ctx, git.GetDefaultExtraEnv(false), "config", "--system", "--unset", "credential.helper").
+			Run()
 		if err != nil {
 			log.Errorf("unset system credential helper %v", err)
 		}
@@ -553,7 +818,13 @@ func configureSystemGitCredentials(ctx context.Context, client tunnel.TunnelClie
 	return cleanup, nil
 }
 
-func streamMount(ctx context.Context, workspaceInfo *provider2.ContainerWorkspaceInfo, m *config.Mount, tunnelClient tunnel.TunnelClient, logger log.Logger) error {
+func streamMount(
+	ctx context.Context,
+	workspaceInfo *provider2.ContainerWorkspaceInfo,
+	m *config.Mount,
+	tunnelClient tunnel.TunnelClient,
+	logger log.Logger,
+) error {
 	// if we have a platform workspace socket we connect directly to it
 	if workspaceInfo.CLIOptions.Platform.Enabled {
 		// check if the runner proxy socket exists
@@ -578,7 +849,10 @@ func streamMount(ctx context.Context, workspaceInfo *provider2.ContainerWorkspac
 		if err != nil {
 			return fmt.Errorf("create request: %w", err)
 		}
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", workspaceInfo.CLIOptions.Platform.AccessKey))
+		req.Header.Set(
+			"Authorization",
+			fmt.Sprintf("Bearer %s", workspaceInfo.CLIOptions.Platform.AccessKey),
+		)
 
 		// send the request
 		resp, err := httpClient.Do(req)
@@ -590,7 +864,11 @@ func streamMount(ctx context.Context, workspaceInfo *provider2.ContainerWorkspac
 		// check if the response is ok
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			return fmt.Errorf("download workspace: body = %s, status = %s", string(body), resp.Status)
+			return fmt.Errorf(
+				"download workspace: body = %s, status = %s",
+				string(body),
+				resp.Status,
+			)
 		}
 
 		// create progress reader

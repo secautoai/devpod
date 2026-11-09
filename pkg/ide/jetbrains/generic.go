@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/sirupsen/logrus"
+	"github.com/skevetter/devpod/pkg/agent"
 	"github.com/skevetter/devpod/pkg/command"
 	config2 "github.com/skevetter/devpod/pkg/config"
 	copy2 "github.com/skevetter/devpod/pkg/copy"
@@ -19,9 +19,9 @@ import (
 	"github.com/skevetter/devpod/pkg/extract"
 	devpodhttp "github.com/skevetter/devpod/pkg/http"
 	"github.com/skevetter/devpod/pkg/ide"
+	devpodopen "github.com/skevetter/devpod/pkg/open"
 	"github.com/skevetter/devpod/pkg/util"
 	"github.com/skevetter/log"
-	"github.com/skratchdot/open-golang/open"
 )
 
 const (
@@ -34,7 +34,13 @@ func getLatestDownloadURL(code string, platform string) string {
 	return fmt.Sprintf("https://download.jetbrains.com/product?code=%s&platform=%s", code, platform)
 }
 
-func getDownloadURLs(options ide.Options, values map[string]config2.OptionValue, productCode string, templateAmd64 string, templateArm64 string) (string, string) {
+func getDownloadURLs(
+	options ide.Options,
+	values map[string]config2.OptionValue,
+	productCode string,
+	templateAmd64 string,
+	templateArm64 string,
+) (string, string) {
 	version := options.GetValue(values, VersionOption)
 	var amd64Download, arm64Download string
 	if version == "latest" {
@@ -62,7 +68,11 @@ type GenericOptions struct {
 	DownloadArm64 string
 }
 
-func newGenericServer(userName string, options *GenericOptions, log log.Logger) *GenericJetBrainsServer {
+func newGenericServer(
+	userName string,
+	options *GenericOptions,
+	log log.Logger,
+) *GenericJetBrainsServer {
 	return &GenericJetBrainsServer{
 		userName: userName,
 		options:  options,
@@ -78,10 +88,21 @@ type GenericJetBrainsServer struct {
 
 func (o *GenericJetBrainsServer) OpenGateway(workspaceFolder, workspaceID string) error {
 	o.log.Infof("Starting %s through JetBrains Gateway...", o.options.DisplayName)
-	err := open.Run(`jetbrains-gateway://connect#idePath=` + url.QueryEscape(o.getDirectory(path.Join("/", "home", o.userName))) + `&projectPath=` + url.QueryEscape(workspaceFolder) + `&host=` + workspaceID + `.devpod&port=22&user=` + url.QueryEscape(o.userName) + `&type=ssh&deploy=false`)
+	err := devpodopen.Run(
+		`jetbrains-gateway://connect#idePath=` + url.QueryEscape(
+			o.getDirectory(path.Join("/", "home", o.userName)),
+		) + `&projectPath=` + url.QueryEscape(
+			workspaceFolder,
+		) + `&host=` + workspaceID + config2.SSHHostSuffix + `&port=22&user=` + url.QueryEscape(
+			o.userName,
+		) + `&type=ssh&deploy=false`,
+	)
 	if err != nil {
 		o.log.Debugf("Error opening jetbrains-gateway: %v", err)
-		o.log.Errorf("Seems like you don't have JetBrains Gateway installed on your computer. Please install JetBrains Gateway via https://www.jetbrains.com/remote-development/gateway/")
+		o.log.Errorf(
+			"Seems like you don't have JetBrains Gateway installed on your computer. " +
+				"Please install JetBrains Gateway via https://www.jetbrains.com/remote-development/gateway/",
+		)
 		return err
 	}
 	return nil
@@ -92,14 +113,11 @@ func (o *GenericJetBrainsServer) GetVolume() string {
 }
 
 func (o *GenericJetBrainsServer) getDownloadFolder() string {
-	return fmt.Sprintf("/var/devpod/%s", o.options.ID)
+	return filepath.Join(agent.ContainerDataDir, o.options.ID)
 }
 
 func (o *GenericJetBrainsServer) Install(setupInfo *config.Result) error {
-	o.log.WithFields(logrus.Fields{
-		"displayName": o.options.DisplayName,
-		"id":          o.options.ID,
-	}).Info("setup backend")
+	o.log.Infof("setup backend: displayName=%s, id=%s", o.options.DisplayName, o.options.ID)
 	baseFolder, err := getBaseFolder(o.userName)
 	if err != nil {
 		return err
@@ -108,26 +126,21 @@ func (o *GenericJetBrainsServer) Install(setupInfo *config.Result) error {
 
 	_, err = os.Stat(targetLocation)
 	if err == nil {
-		o.log.WithFields(logrus.Fields{
-			"displayName": o.options.DisplayName,
-			"id":          o.options.ID,
-		}).Info("already installed skip install")
+		o.log.Infof(
+			"already installed skip install: displayName=%s, id=%s",
+			o.options.DisplayName,
+			o.options.ID,
+		)
 		return nil
 	}
 
-	o.log.WithFields(logrus.Fields{
-		"displayName": o.options.DisplayName,
-		"id":          o.options.ID,
-	}).Info("downloading archive")
+	o.log.Infof("downloading archive: displayName=%s, id=%s", o.options.DisplayName, o.options.ID)
 	archivePath, err := o.download(o.getDownloadFolder(), o.log)
 	if err != nil {
 		return err
 	}
 
-	o.log.WithFields(logrus.Fields{
-		"displayName": o.options.DisplayName,
-		"id":          o.options.ID,
-	}).Info("extracting archive")
+	o.log.Infof("extracting archive: displayName=%s, id=%s", o.options.DisplayName, o.options.ID)
 	err = o.extractArchive(archivePath, targetLocation)
 	if err != nil {
 		return err
@@ -137,10 +150,7 @@ func (o *GenericJetBrainsServer) Install(setupInfo *config.Result) error {
 	if err != nil {
 		return fmt.Errorf("chown: %w", err)
 	}
-	o.log.WithFields(logrus.Fields{
-		"displayName": o.options.DisplayName,
-		"id":          o.options.ID,
-	}).Info("installed backend")
+	o.log.Infof("installed backend: displayName=%s, id=%s", o.options.DisplayName, o.options.ID)
 
 	jetBrainsConfiguration := config.GetJetBrainsConfiguration(setupInfo.MergedConfig)
 	plugins := jetBrainsConfiguration.Plugins
@@ -150,13 +160,13 @@ func (o *GenericJetBrainsServer) Install(setupInfo *config.Result) error {
 		return nil
 	}
 
-	o.log.WithFields(logrus.Fields{
-		"plugins": plugins,
-	}).Info("installing JetBrains plugins")
+	o.log.Infof("installing JetBrains plugins: plugins=%v", plugins)
 
 	installPluginsCommand := exec.Command(
 		path.Join(targetLocation, "bin", "remote-dev-server.sh"),
-		append([]string{"installPlugins", "--give-consent-to-use-third-party-plugins"}, plugins...)...,
+		append(
+			[]string{"installPlugins", "--give-consent-to-use-third-party-plugins"},
+			plugins...)...,
 	)
 
 	// JetBrains IDE launcher uses HOME and possibly USER environment variables;
@@ -176,13 +186,15 @@ func (o *GenericJetBrainsServer) Install(setupInfo *config.Result) error {
 
 	out, err := installPluginsCommand.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to install JetBrains plugins %v: %w", plugins, command.WrapCommandError(out, err))
+		return fmt.Errorf(
+			"failed to install JetBrains plugins %v: %w",
+			plugins,
+			command.WrapCommandError(out, err),
+		)
 	}
 
 	o.log.Debugf("remote-dev-server.sh output: %s", out)
-	o.log.WithFields(logrus.Fields{
-		"plugins": plugins,
-	}).Info("installed JetBrains plugins")
+	o.log.Infof("installed JetBrains plugins: plugins=%v", plugins)
 
 	return nil
 }
@@ -230,14 +242,12 @@ func (o *GenericJetBrainsServer) download(targetFolder string, log log.Logger) (
 	targetPath := path.Join(filepath.ToSlash(targetFolder), o.options.ID+".tar.gz")
 
 	// initiate download
-	log.WithFields(logrus.Fields{
-		"displayName": o.options.DisplayName,
-		"id":          o.options.ID,
-	}).Info("downloading archive")
-	defer log.WithFields(logrus.Fields{
-		"displayName": o.options.DisplayName,
-		"id":          o.options.ID,
-	}).Info("downloaded archive")
+	log.Infof("downloading archive: displayName=%s, id=%s", o.options.DisplayName, o.options.ID)
+	defer log.Infof(
+		"downloaded archive: displayName=%s, id=%s",
+		o.options.DisplayName,
+		o.options.ID,
+	)
 	resp, err := devpodhttp.GetHTTPClient().Get(downloadURL)
 	if err != nil {
 		return "", fmt.Errorf("download binary: %w", err)

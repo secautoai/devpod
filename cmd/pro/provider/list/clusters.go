@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	managementv1 "github.com/loft-sh/api/v4/pkg/apis/management/v1"
+	managementv1 "github.com/skevetter/api/pkg/apis/management/v1"
 	"github.com/skevetter/devpod/cmd/pro/flags"
 	"github.com/skevetter/devpod/pkg/platform"
 	"github.com/skevetter/devpod/pkg/platform/client"
@@ -15,14 +15,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ClustersCmd holds the cmd flags
+// ClustersCmd holds the cmd flags.
 type ClustersCmd struct {
 	*flags.GlobalFlags
 
 	log log.Logger
 }
 
-// NewClustersCmd creates a new command
+// NewClustersCmd creates a new command.
 func NewClustersCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &ClustersCmd{
 		GlobalFlags: globalFlags,
@@ -65,13 +65,20 @@ func (cmd *ClustersCmd) Run(ctx context.Context) error {
 	return nil
 }
 
-func Clusters(ctx context.Context, client client.Client, projectName string) (*managementv1.ProjectClusters, error) {
+func Clusters(
+	ctx context.Context,
+	client client.Client,
+	projectName string,
+) (*managementv1.ProjectClusters, error) {
 	managementClient, err := client.Management()
 	if err != nil {
 		return nil, err
 	}
 
-	clustersList, err := managementClient.Loft().ManagementV1().Projects().ListClusters(ctx, projectName, metav1.GetOptions{})
+	clustersList, err := managementClient.Loft().
+		ManagementV1().
+		Projects().
+		ListClusters(ctx, projectName, metav1.GetOptions{})
 	if err != nil {
 		return clustersList, fmt.Errorf("list clusters: %w", err)
 	}

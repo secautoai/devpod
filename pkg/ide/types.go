@@ -44,11 +44,16 @@ func (o Options) GetValue(values map[string]config.OptionValue, key string) stri
 	return ""
 }
 
-// ReusesAuthSock determines if the --reuse-ssh-auth-sock flag should be passed to the ssh server helper based on the IDE.
-// Browser based IDEs use a browser tunnel to communicate with the remote server instead of an independent ssh connection
+// ReusesAuthSock determines if the --reuse-ssh-auth-sock flag should be passed to the
+// ssh server helper based on the IDE. Browser based IDEs use a browser tunnel to
+// communicate with the remote server instead of an independent ssh connection.
 func ReusesAuthSock(ide string) bool {
 	switch ide {
 	case string(config.IDEOpenVSCode):
+		return true
+	case string(config.IDEVSCodeWeb):
+		return true
+	case string(config.IDECodeServer):
 		return true
 	case string(config.IDEJupyterNotebook):
 		return true
@@ -70,7 +75,11 @@ func (p *ProgressReader) Read(b []byte) (n int, err error) {
 	n, err = p.Reader.Read(b)
 	p.bytesRead += int64(n)
 	if time.Since(p.lastMessage) > time.Second*1 {
-		p.Log.Infof("Downloaded %.2f / %.2f MB", float64(p.bytesRead)/1024/1024, float64(p.TotalSize/1024/1024))
+		p.Log.Infof(
+			"Downloaded %.2f / %.2f MB",
+			float64(p.bytesRead)/1024/1024,
+			float64(p.TotalSize/1024/1024),
+		)
 		p.lastMessage = time.Now()
 	}
 

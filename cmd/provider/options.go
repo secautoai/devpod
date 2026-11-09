@@ -11,14 +11,14 @@ import (
 	"github.com/skevetter/devpod/cmd/completion"
 	"github.com/skevetter/devpod/cmd/flags"
 	"github.com/skevetter/devpod/pkg/config"
+	"github.com/skevetter/devpod/pkg/table"
 	"github.com/skevetter/devpod/pkg/types"
 	"github.com/skevetter/devpod/pkg/workspace"
 	"github.com/skevetter/log"
-	"github.com/skevetter/log/table"
 	"github.com/spf13/cobra"
 )
 
-// OptionsCmd holds the options cmd flags
+// OptionsCmd holds the options cmd flags.
 type OptionsCmd struct {
 	*flags.GlobalFlags
 
@@ -26,7 +26,7 @@ type OptionsCmd struct {
 	Output string
 }
 
-// NewOptionsCmd creates a new command
+// NewOptionsCmd creates a new command.
 func NewOptionsCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &OptionsCmd{
 		GlobalFlags: flags,
@@ -34,16 +34,26 @@ func NewOptionsCmd(flags *flags.GlobalFlags) *cobra.Command {
 	optionsCmd := &cobra.Command{
 		Use:   "options [provider]",
 		Short: "Show options of an existing provider",
-		RunE: func(_ *cobra.Command, args []string) error {
-			return cmd.Run(context.Background(), args)
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			return cmd.Run(cobraCmd.Context(), args)
 		},
 		ValidArgsFunction: func(rootCmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			return completion.GetProviderSuggestions(rootCmd, cmd.Context, cmd.Provider, args, toComplete, cmd.Owner, log.Default)
+			return completion.GetProviderSuggestions(
+				rootCmd,
+				cmd.Context,
+				cmd.Provider,
+				args,
+				toComplete,
+				cmd.Owner,
+				log.Default,
+			)
 		},
 	}
 
-	optionsCmd.Flags().BoolVar(&cmd.Hidden, "hidden", false, "If true, will also show hidden options.")
-	optionsCmd.Flags().StringVar(&cmd.Output, "output", "plain", "The output format to use. Can be json or plain")
+	optionsCmd.Flags().
+		BoolVar(&cmd.Hidden, "hidden", false, "If true, will also show hidden options.")
+	optionsCmd.Flags().
+		StringVar(&cmd.Output, "output", "plain", "The output format to use. Can be json or plain")
 	return optionsCmd
 }
 
@@ -54,7 +64,7 @@ type optionWithValue struct {
 	Value    string   `json:"value,omitempty"`
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *OptionsCmd) Run(ctx context.Context, args []string) error {
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
@@ -76,7 +86,11 @@ func (cmd *OptionsCmd) Run(ctx context.Context, args []string) error {
 		}
 	}
 
-	providerWithOptions, err := workspace.FindProvider(devPodConfig, providerName, log.Default.ErrorStreamOnly())
+	providerWithOptions, err := workspace.FindProvider(
+		devPodConfig,
+		providerName,
+		log.Default.ErrorStreamOnly(),
+	)
 	if err != nil {
 		return err
 	}
@@ -84,7 +98,12 @@ func (cmd *OptionsCmd) Run(ctx context.Context, args []string) error {
 	return printOptions(devPodConfig, providerWithOptions, cmd.Output, cmd.Hidden)
 }
 
-func printOptions(devPodConfig *config.Config, provider *workspace.ProviderWithOptions, format string, showHidden bool) error {
+func printOptions(
+	devPodConfig *config.Config,
+	provider *workspace.ProviderWithOptions,
+	format string,
+	showHidden bool,
+) error {
 	entryOptions := devPodConfig.ProviderOptions(provider.Config.Name)
 	dynamicOptions := devPodConfig.DynamicProviderOptionDefinitions(provider.Config.Name)
 	srcOptions := MergeDynamicOptions(provider.Config.Options, dynamicOptions)
@@ -112,7 +131,7 @@ func printOptions(devPodConfig *config.Config, provider *workspace.ProviderWithO
 			return tableEntries[i][0] < tableEntries[j][0]
 		})
 
-		table.PrintTable(log.Default, []string{
+		table.Print([]string{
 			"Name",
 			"Required",
 			"Description",
@@ -145,8 +164,11 @@ func printOptions(devPodConfig *config.Config, provider *workspace.ProviderWithO
 	return nil
 }
 
-// MergeDynamicOptions merges the static provider options and dynamic options
-func MergeDynamicOptions(options map[string]*types.Option, dynamicOptions config.OptionDefinitions) map[string]*types.Option {
+// MergeDynamicOptions merges the static provider options and dynamic options.
+func MergeDynamicOptions(
+	options map[string]*types.Option,
+	dynamicOptions config.OptionDefinitions,
+) map[string]*types.Option {
 	retOptions := map[string]*types.Option{}
 	maps.Copy(retOptions, options)
 	maps.Copy(retOptions, dynamicOptions)

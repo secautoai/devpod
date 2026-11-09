@@ -6,9 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	clusterv1 "github.com/loft-sh/agentapi/v4/pkg/apis/loft/cluster/v1"
-	storagev1 "github.com/loft-sh/api/v4/pkg/apis/storage/v1"
-	"github.com/sirupsen/logrus"
+	clusterv1 "github.com/skevetter/agentapi/pkg/apis/devsy/cluster/v1"
+	storagev1 "github.com/skevetter/api/pkg/apis/storage/v1"
 	"github.com/skevetter/devpod/cmd/pro/flags"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/platform"
@@ -20,7 +19,7 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// WakeupCmd holds the cmd flags
+// WakeupCmd holds the cmd flags.
 type WakeupCmd struct {
 	*flags.GlobalFlags
 	Log log.Logger
@@ -29,7 +28,7 @@ type WakeupCmd struct {
 	Host    string
 }
 
-// NewWakeupCmd creates a new command
+// NewWakeupCmd creates a new command.
 func NewWakeupCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &WakeupCmd{
 		GlobalFlags: globalFlags,
@@ -69,13 +68,14 @@ func (cmd *WakeupCmd) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	workspaceInstance, err := platform.FindInstanceByName(ctx, baseClient, targetWorkspace, cmd.Project)
+	opts := platform.FindInstanceOptions{Name: targetWorkspace, ProjectName: cmd.Project}
+	workspaceInstance, err := platform.FindInstance(ctx, baseClient, opts)
 	if err != nil {
 		return err
 	}
 
 	if workspaceInstance.Status.Phase != storagev1.InstanceSleeping {
-		cmd.Log.Infof("Workspace %s is not sleeping", targetWorkspace, workspaceInstance.Name)
+		cmd.Log.Infof("Workspace %s is not sleeping", workspaceInstance.Name)
 		return nil
 	}
 
@@ -97,35 +97,47 @@ func (cmd *WakeupCmd) Run(ctx context.Context, args []string) error {
 	}
 	delete(workspaceInstance.Annotations, clusterv1.SleepModeForceAnnotation)
 	delete(workspaceInstance.Annotations, clusterv1.SleepModeForceDurationAnnotation)
-	workspaceInstance.Annotations[clusterv1.SleepModeLastActivityAnnotation] = strconv.FormatInt(time.Now().Unix(), 10)
+	workspaceInstance.Annotations[clusterv1.SleepModeLastActivityAnnotation] = strconv.FormatInt(
+		time.Now().Unix(),
+		10,
+	)
 
 	patchData, err := patch.Data(workspaceInstance)
 	if err != nil {
 		return err
 	}
 
-	_, err = managementClient.Loft().ManagementV1().DevPodWorkspaceInstances(project.ProjectNamespace(cmd.Project)).Patch(ctx, workspaceInstance.Name, patch.Type(), patchData, metav1.PatchOptions{})
+	_, err = managementClient.Loft().
+		ManagementV1().
+		DevPodWorkspaceInstances(project.ProjectNamespace(cmd.Project)).
+		Patch(ctx, workspaceInstance.Name, patch.Type(), patchData, metav1.PatchOptions{})
 	if err != nil {
 		return err
 	}
 
 	// wait for sleeping
 	cmd.Log.Info("Wait until workspace wakes up...")
-	err = wait.PollUntilContextTimeout(ctx, time.Second, platform.Timeout(), false, func(ctx context.Context) (done bool, err error) {
-		workspaceInstance, err := managementClient.Loft().ManagementV1().DevPodWorkspaceInstances(project.ProjectNamespace(cmd.Project)).Get(ctx, workspaceInstance.Name, metav1.GetOptions{})
-		if err != nil {
-			return false, err
-		}
+	err = wait.PollUntilContextTimeout(
+		ctx,
+		time.Second,
+		platform.Timeout(),
+		false,
+		func(ctx context.Context) (done bool, err error) {
+			workspaceInstance, err := managementClient.Loft().
+				ManagementV1().
+				DevPodWorkspaceInstances(project.ProjectNamespace(cmd.Project)).
+				Get(ctx, workspaceInstance.Name, metav1.GetOptions{})
+			if err != nil {
+				return false, err
+			}
 
-		return workspaceInstance.Status.Phase == storagev1.InstanceReady, nil
-	})
+			return workspaceInstance.Status.Phase == storagev1.InstanceReady, nil
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("error waiting for workspace to wake up: %w", err)
 	}
 
-	cmd.Log.WithFields(logrus.Fields{
-		"workspaceName": workspaceInstance.Name,
-	})
-	cmd.Log.Donef("woke up workspace")
+	cmd.Log.Donef("woke up workspace: workspaceName=%s", workspaceInstance.Name)
 	return nil
 }

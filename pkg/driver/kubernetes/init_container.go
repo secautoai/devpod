@@ -4,11 +4,16 @@ import (
 	"fmt"
 	"strings"
 
+	pkgconfig "github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/driver"
 	corev1 "k8s.io/api/core/v1"
 )
 
-func (k *KubernetesDriver) getInitContainers(options *driver.RunOptions, pod *corev1.Pod, initialize bool) ([]corev1.Container, error) {
+func (k *KubernetesDriver) getInitContainers(
+	options *driver.RunOptions,
+	pod *corev1.Pod,
+	initialize bool,
+) ([]corev1.Container, error) {
 	if !initialize {
 		retContainers := []corev1.Container{}
 		// don't build init container and clean up existing one if defined
@@ -34,7 +39,14 @@ func (k *KubernetesDriver) getInitContainers(options *driver.RunOptions, pod *co
 		copyFrom := volumeMount.MountPath
 		volumeMount.MountPath = "/" + volumeMount.SubPath
 		volumeMounts = append(volumeMounts, volumeMount)
-		commands = append(commands, fmt.Sprintf(`cp -a %s/. %s/ || true`, strings.TrimRight(copyFrom, "/"), strings.TrimRight(volumeMount.MountPath, "/")))
+		commands = append(
+			commands,
+			fmt.Sprintf(
+				`cp -a %s/. %s/ || true`,
+				strings.TrimRight(copyFrom, "/"),
+				strings.TrimRight(volumeMount.MountPath, "/"),
+			),
+		)
 	}
 
 	retContainers := []corev1.Container{}
@@ -59,7 +71,7 @@ func (k *KubernetesDriver) getInitContainers(options *driver.RunOptions, pod *co
 		RunAsGroup:   &[]int64{0}[0],
 		RunAsNonRoot: &[]bool{false}[0],
 	}
-	if k.options.StrictSecurity == "true" {
+	if k.options.StrictSecurity == pkgconfig.BoolTrue {
 		securityContext = nil
 	}
 
@@ -82,7 +94,9 @@ func (k *KubernetesDriver) getInitContainers(options *driver.RunOptions, pod *co
 		initContainer.Env = append(existingInitContainer.Env, initContainer.Env...)
 		initContainer.EnvFrom = existingInitContainer.EnvFrom
 		initContainer.Ports = existingInitContainer.Ports
-		initContainer.VolumeMounts = append(existingInitContainer.VolumeMounts, initContainer.VolumeMounts...)
+		initContainer.VolumeMounts = append(
+			existingInitContainer.VolumeMounts,
+			initContainer.VolumeMounts...)
 		initContainer.ImagePullPolicy = existingInitContainer.ImagePullPolicy
 
 		if initContainer.SecurityContext == nil && existingInitContainer.SecurityContext != nil {

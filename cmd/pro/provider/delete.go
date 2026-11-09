@@ -14,14 +14,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// DeleteCmd holds the cmd flags
+// DeleteCmd holds the cmd flags.
 type DeleteCmd struct {
 	*flags.GlobalFlags
 
 	Log log.Logger
 }
 
-// NewDeleteCmd creates a new command
+// NewDeleteCmd creates a new command.
 func NewDeleteCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &DeleteCmd{
 		GlobalFlags: globalFlags,
@@ -40,7 +40,12 @@ func NewDeleteCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	return c
 }
 
-func (cmd *DeleteCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func (cmd *DeleteCmd) Run(
+	ctx context.Context,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	baseClient, err := client.InitClientFromPath(ctx, cmd.Config)
 	if err != nil {
 		return err
@@ -50,7 +55,8 @@ func (cmd *DeleteCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Writer
 	if err != nil {
 		return err
 	}
-	workspace, err := platform.FindInstanceInProject(ctx, baseClient, info.UID, info.ProjectName)
+	opts := platform.FindInstanceOptions{UID: info.UID, ProjectName: info.ProjectName}
+	workspace, err := platform.FindInstance(ctx, baseClient, opts)
 	if err != nil {
 		return err
 	} else if workspace == nil {
@@ -62,7 +68,10 @@ func (cmd *DeleteCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Writer
 		return err
 	}
 
-	err = managementClient.Loft().ManagementV1().DevPodWorkspaceInstances(workspace.Namespace).Delete(ctx, workspace.Name, metav1.DeleteOptions{})
+	err = managementClient.Loft().
+		ManagementV1().
+		DevPodWorkspaceInstances(workspace.Namespace).
+		Delete(ctx, workspace.Name, metav1.DeleteOptions{})
 	if err != nil {
 		return fmt.Errorf("delete workspace: %w", err)
 	}

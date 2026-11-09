@@ -12,14 +12,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// StatusCmd holds the cmd flags
+// StatusCmd holds the cmd flags.
 type StatusCmd struct {
 	*flags.GlobalFlags
 
 	WorkspaceInfo string
 }
 
-// NewStatusCmd creates a new command
+// NewStatusCmd creates a new command.
 func NewStatusCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &StatusCmd{
 		GlobalFlags: flags,
@@ -28,8 +28,8 @@ func NewStatusCmd(flags *flags.GlobalFlags) *cobra.Command {
 		Use:   "status",
 		Short: "Print the status of a remote container",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return cmd.Run(context.Background(), log.Default.ErrorStreamOnly())
+		RunE: func(cobraCmd *cobra.Command, _ []string) error {
+			return cmd.Run(cobraCmd.Context(), log.Default.ErrorStreamOnly())
 		},
 	}
 	statusCmd.Flags().StringVar(&cmd.WorkspaceInfo, "workspace-info", "", "The workspace info")

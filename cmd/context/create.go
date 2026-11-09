@@ -13,14 +13,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// CreateCmd holds the create cmd flags
+// CreateCmd holds the create cmd flags.
 type CreateCmd struct {
 	*flags.GlobalFlags
 
 	Options []string
 }
 
-// NewCreateCmd creates a new command
+// NewCreateCmd creates a new command.
 func NewCreateCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &CreateCmd{
 		GlobalFlags: flags,
@@ -28,20 +28,21 @@ func NewCreateCmd(flags *flags.GlobalFlags) *cobra.Command {
 	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a new DevPod context",
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return fmt.Errorf("please specify the context to create")
 			}
 
-			return cmd.Run(context.Background(), args[0])
+			return cmd.Run(cobraCmd.Context(), args[0])
 		},
 	}
 
-	createCmd.Flags().StringArrayVarP(&cmd.Options, "option", "o", []string{}, "context option in the form KEY=VALUE")
+	createCmd.Flags().
+		StringArrayVarP(&cmd.Options, "option", "o", []string{}, "context option in the form KEY=VALUE")
 	return createCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *CreateCmd) Run(ctx context.Context, context string) error {
 	devPodConfig, err := config.LoadConfig("", cmd.Provider)
 	if err != nil {
@@ -52,7 +53,7 @@ func (cmd *CreateCmd) Run(ctx context.Context, context string) error {
 
 	// verify name
 	if provider2.ProviderNameRegEx.MatchString(context) {
-		return fmt.Errorf("context name can only include smaller case letters, numbers or dashes")
+		return fmt.Errorf("context name can only include lower case letters, numbers or dashes")
 	} else if len(context) > 48 {
 		return fmt.Errorf("context name cannot be longer than 48 characters")
 	}
@@ -112,13 +113,22 @@ func parseOptions(options []string) (map[string]config.OptionValue, error) {
 		value := strings.Join(splitted[1:], "=")
 		contextOption, ok := contextOptions[key]
 		if !ok {
-			return nil, fmt.Errorf("invalid option '%s', allowed options are: %v", key, allowedOptions)
+			return nil, fmt.Errorf(
+				"invalid option '%s', allowed options are: %v",
+				key,
+				allowedOptions,
+			)
 		}
 
 		if len(contextOption.Enum) > 0 {
 			found := slices.Contains(contextOption.Enum, value)
 			if !found {
-				return nil, fmt.Errorf("invalid value '%s' for option '%s', has to match one of the following values: %v", value, key, contextOption.Enum)
+				return nil, fmt.Errorf(
+					"invalid value '%s' for option '%s', has to match one of the following values: %v",
+					value,
+					key,
+					contextOption.Enum,
+				)
 			}
 		}
 

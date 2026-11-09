@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/cmd/flags"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/workspace"
@@ -12,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// UpdateCmd holds the cmd flags
+// UpdateCmd holds the cmd flags.
 type UpdateCmd struct {
 	*flags.GlobalFlags
 
@@ -20,16 +19,16 @@ type UpdateCmd struct {
 	Options []string
 }
 
-// NewUpdateCmd creates a new command
+// NewUpdateCmd creates a new command.
 func NewUpdateCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &UpdateCmd{
 		GlobalFlags: flags,
 	}
 	updateCmd := &cobra.Command{
-		Use:   "update [name] [URL or path]",
+		Use:   "update [name] [name, GitHub link, URL or path]",
 		Short: "Updates a provider in DevPod",
-		RunE: func(_ *cobra.Command, args []string) error {
-			ctx := context.Background()
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			ctx := cobraCmd.Context()
 			devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 			if err != nil {
 				return err
@@ -39,15 +38,17 @@ func NewUpdateCmd(flags *flags.GlobalFlags) *cobra.Command {
 		},
 	}
 
-	updateCmd.Flags().BoolVar(&cmd.Use, "use", true, "If enabled will automatically activate the provider")
-	updateCmd.Flags().StringArrayVarP(&cmd.Options, "option", "o", []string{}, "Provider option in the form KEY=VALUE")
+	updateCmd.Flags().
+		BoolVar(&cmd.Use, "use", true, "If enabled will automatically activate the provider")
+	updateCmd.Flags().
+		StringArrayVarP(&cmd.Options, "option", "o", []string{}, "Provider option in the form KEY=VALUE")
 	return updateCmd
 }
 
 func (cmd *UpdateCmd) Run(ctx context.Context, devPodConfig *config.Config, args []string) error {
 	if len(args) != 1 && len(args) != 2 {
 		return fmt.Errorf("please specify either a local file, URL or Git repository. " +
-			"E.g. devpod provider update my-provider skevetter/devpod-provider-gcloud")
+			"E.g. devpod provider update my-provider " + config.ProviderPrefix + "gcloud")
 	}
 
 	providerSource := ""
@@ -55,18 +56,34 @@ func (cmd *UpdateCmd) Run(ctx context.Context, devPodConfig *config.Config, args
 		providerSource = args[1]
 	}
 
-	providerConfig, err := workspace.UpdateProvider(devPodConfig, args[0], providerSource, log.Default)
+	providerConfig, err := workspace.UpdateProvider(
+		devPodConfig,
+		args[0],
+		providerSource,
+		log.Default,
+	)
 	if err != nil {
 		return err
 	}
 
-	log.WithFields(logrus.Fields{
-		"providerName": providerConfig.Name,
-	}).Done("updated provider")
+	log.Default.Donef("updated provider: providerName=%s", providerConfig.Name)
 	if cmd.Use {
-		err = ConfigureProvider(ctx, providerConfig, devPodConfig.DefaultContext, cmd.Options, false, false, false, nil, log.Default)
+		err = ConfigureProvider(ctx, ProviderOptionsConfig{
+			Provider:       providerConfig,
+			Context:        devPodConfig.DefaultContext,
+			UserOptions:    cmd.Options,
+			Reconfigure:    false,
+			SkipRequired:   false,
+			SkipInit:       false,
+			SkipSubOptions: false,
+			SingleMachine:  nil,
+			Log:            log.Default,
+		})
 		if err != nil {
-			log.Default.Errorf("Error configuring provider, please retry with 'devpod provider use %s --reconfigure'", providerConfig.Name)
+			log.Default.Errorf(
+				"Error configuring provider, please retry with 'devpod provider use %s --reconfigure'",
+				providerConfig.Name,
+			)
 			return fmt.Errorf("configure provider: %w", err)
 		}
 

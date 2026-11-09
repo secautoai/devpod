@@ -7,7 +7,6 @@ import (
 	"github.com/skevetter/devpod/cmd/agent/container"
 	"github.com/skevetter/devpod/cmd/agent/workspace"
 	"github.com/skevetter/devpod/cmd/flags"
-	"github.com/skevetter/devpod/pkg/client/clientimplementation"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/envfile"
 	"github.com/skevetter/log"
@@ -16,7 +15,7 @@ import (
 
 var AgentExecutedAnnotation = "loft.sh/agent-executed"
 
-// NewAgentCmd returns a new root command
+// NewAgentCmd returns a new root command.
 func NewAgentCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	agentCmd := &cobra.Command{
 		Use:   "agent",
@@ -38,7 +37,11 @@ func NewAgentCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	return agentCmd
 }
 
-func AgentPersistentPreRunE(cobraCmd *cobra.Command, args []string, globalFlags *flags.GlobalFlags) error {
+func AgentPersistentPreRunE(
+	cobraCmd *cobra.Command,
+	args []string,
+	globalFlags *flags.GlobalFlags,
+) error {
 	// get top level parent
 	parent := cobraCmd
 	for parent.Parent() != nil {
@@ -59,12 +62,12 @@ func AgentPersistentPreRunE(cobraCmd *cobra.Command, args []string, globalFlags 
 		log.Default.SetLevel(logrus.FatalLevel)
 	} else if globalFlags.Debug {
 		log.Default.SetLevel(logrus.DebugLevel)
-	} else if os.Getenv(clientimplementation.DevPodDebug) == "true" {
+	} else if os.Getenv(config.EnvDebug) == config.BoolTrue {
 		log.Default.SetLevel(logrus.DebugLevel)
 	}
 
 	if globalFlags.DevPodHome != "" {
-		_ = os.Setenv(config.DEVPOD_HOME, globalFlags.DevPodHome)
+		_ = os.Setenv(config.EnvHome, globalFlags.DevPodHome)
 	}
 
 	// apply environment

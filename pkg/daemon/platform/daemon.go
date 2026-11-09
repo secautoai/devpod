@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/skevetter/devpod/pkg/config"
 	devpodlog "github.com/skevetter/devpod/pkg/log"
 	"github.com/skevetter/devpod/pkg/platform/client"
 	"github.com/skevetter/devpod/pkg/ts"
@@ -52,7 +53,15 @@ func Init(ctx context.Context, config InitConfig) (*Daemon, error) {
 	}
 
 	platformConfig := config.PlatformClient.Config()
-	tsServer, lc, err := newTSServer(ctx, platformConfig.Host, platformConfig.AccessKey, config.UserName, config.RootDir, platformConfig.Insecure, log)
+	tsServer, lc, err := newTSServer(
+		ctx,
+		platformConfig.Host,
+		platformConfig.AccessKey,
+		config.UserName,
+		config.RootDir,
+		platformConfig.Insecure,
+		log,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("create tailscale server: %w", err)
 	}
@@ -70,6 +79,7 @@ func Init(ctx context.Context, config InitConfig) (*Daemon, error) {
 		log:            log,
 	}, nil
 }
+
 func (d *Daemon) Start(ctx context.Context) error {
 	errChan := make(chan error, 1)
 
@@ -184,8 +194,12 @@ func initLogging(rootDir string, debug bool) log.Logger {
 
 	logPath := filepath.Join(rootDir, "daemon.log")
 	logger := log.NewFileLogger(logPath, logLevel)
-	if os.Getenv("DEVPOD_UI") != "true" {
-		logger = devpodlog.NewCombinedLogger(logLevel, logger, log.NewStreamLogger(os.Stdout, os.Stderr, logLevel))
+	if os.Getenv(config.EnvUI) != config.BoolTrue {
+		logger = devpodlog.NewCombinedLogger(
+			logLevel,
+			logger,
+			log.NewStreamLogger(os.Stdout, os.Stderr, logLevel),
+		)
 	}
 
 	return logger
@@ -208,7 +222,7 @@ func dialLocal(l *localServer) dialFunc {
 type clientType string
 
 var (
-	devPodClientType    clientType = "devpod"
+	devPodClientType    clientType = clientType(config.BinaryName)
 	tailscaleClientType clientType = "tailscale"
 )
 

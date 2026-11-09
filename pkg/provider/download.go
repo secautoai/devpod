@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	dirPerms    = 0750
-	filePerms   = 0755
+	dirPerms    = 0o750
+	filePerms   = 0o755
 	windowsOS   = "windows"
 	exeSuffix   = ".exe"
 	httpPrefix  = "http://"
@@ -32,7 +32,7 @@ const (
 	tarSuffix   = ".tar"
 	tgzSuffix   = ".tgz"
 	zipSuffix   = ".zip"
-	cacheDir    = "devpod-binaries"
+	cacheDir    = config.BinaryName + "-binaries"
 )
 
 var (
@@ -85,7 +85,10 @@ func GetBinariesFrom(config *ProviderConfig, binariesDir string) (map[string]str
 		if !found {
 			return nil, fmt.Errorf(
 				"cannot find provider binary %s, because no binary location matched OS %s and ARCH %s",
-				binaryName, runtime.GOOS, runtime.GOARCH)
+				binaryName,
+				runtime.GOOS,
+				runtime.GOARCH,
+			)
 		}
 	}
 
@@ -276,7 +279,12 @@ func fromCache(binary *ProviderBinary, targetFolder string, log log.Logger) bool
 	}
 
 	if err := copy.File(cachedBinaryPath, binaryPath, filePerms); err != nil {
-		log.Warnf("error copying cached binary from %s to %s: %v", cachedBinaryPath, binaryPath, err)
+		log.Warnf(
+			"error copying cached binary from %s to %s: %v",
+			cachedBinaryPath,
+			binaryPath,
+			err,
+		)
 		return false
 	}
 
@@ -580,7 +588,7 @@ func extractZipArchive(body io.ReadCloser, targetFolder, targetPath string) (str
 }
 
 func downloadToTempFile(reader io.Reader) (string, error) {
-	tempFile, err := os.CreateTemp("", "devpod-archive-*")
+	tempFile, err := os.CreateTemp("", config.BinaryName+"-archive-*")
 	if err != nil {
 		return "", err
 	}

@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	managementv1 "github.com/loft-sh/api/v4/pkg/apis/management/v1"
-	storagev1 "github.com/loft-sh/api/v4/pkg/apis/storage/v1"
-	loftclient "github.com/loft-sh/api/v4/pkg/clientset/versioned"
-	informers "github.com/loft-sh/api/v4/pkg/informers/externalversions"
-	informermanagementv1 "github.com/loft-sh/api/v4/pkg/informers/externalversions/management/v1"
+	managementv1 "github.com/skevetter/api/pkg/apis/management/v1"
+	storagev1 "github.com/skevetter/api/pkg/apis/storage/v1"
+	loftclient "github.com/skevetter/api/pkg/clientset/versioned"
+	informers "github.com/skevetter/api/pkg/informers/externalversions"
+	informermanagementv1 "github.com/skevetter/api/pkg/informers/externalversions/management/v1"
 	"github.com/skevetter/devpod/cmd/pro/flags"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/platform"
@@ -27,14 +27,14 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-// WorkspacesCmd holds the cmd flags
+// WorkspacesCmd holds the cmd flags.
 type WorkspacesCmd struct {
 	*flags.GlobalFlags
 
 	Log log.Logger
 }
 
-// NewWorkspacesCmd creates a new command
+// NewWorkspacesCmd creates a new command.
 func NewWorkspacesCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &WorkspacesCmd{
 		GlobalFlags: globalFlags,
@@ -68,12 +68,17 @@ type ProWorkspaceInstanceStatus struct {
 	IDE    *provider.WorkspaceIDEConfig `json:"ide,omitempty"`
 }
 
-func (cmd *WorkspacesCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func (cmd *WorkspacesCmd) Run(
+	ctx context.Context,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	if cmd.Context == "" {
 		cmd.Context = config.DefaultContext
 	}
 
-	projectName := os.Getenv(provider.LOFT_PROJECT)
+	projectName := os.Getenv(config.EnvLoftProject)
 	if projectName == "" {
 		return fmt.Errorf("project name not found")
 	}
@@ -99,7 +104,7 @@ func (cmd *WorkspacesCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Wr
 	workspaceInformer := factory.Management().V1().DevPodWorkspaceInstances()
 
 	self := baseClient.Self()
-	filterByOwner := os.Getenv(provider.LOFT_FILTER_BY_OWNER) == "true"
+	filterByOwner := os.Getenv(config.EnvLoftFilterByOwner) == config.BoolTrue
 	instanceStore := newStore(workspaceInformer, self, cmd.Context, filterByOwner, cmd.Log)
 
 	_, err = workspaceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -171,7 +176,13 @@ type instanceStore struct {
 	log log.Logger
 }
 
-func newStore(informer informermanagementv1.DevPodWorkspaceInstanceInformer, self *managementv1.Self, context string, filterByOwner bool, log log.Logger) *instanceStore {
+func newStore(
+	informer informermanagementv1.DevPodWorkspaceInstanceInformer,
+	self *managementv1.Self,
+	context string,
+	filterByOwner bool,
+	log log.Logger,
+) *instanceStore {
 	return &instanceStore{
 		informer:      informer,
 		self:          self,
@@ -191,8 +202,11 @@ func (s *instanceStore) Add(instance *managementv1.DevPodWorkspaceInstance) {
 		return
 	}
 	var source *provider.WorkspaceSource
-	if instance.GetAnnotations() != nil && instance.GetAnnotations()[storagev1.DevPodWorkspaceSourceAnnotation] != "" {
-		source = provider.ParseWorkspaceSource(instance.GetAnnotations()[storagev1.DevPodWorkspaceSourceAnnotation])
+	if instance.GetAnnotations() != nil &&
+		instance.GetAnnotations()[storagev1.DevPodWorkspaceSourceAnnotation] != "" {
+		source = provider.ParseWorkspaceSource(
+			instance.GetAnnotations()[storagev1.DevPodWorkspaceSourceAnnotation],
+		)
 	}
 
 	var ideConfig *provider.WorkspaceIDEConfig
@@ -221,7 +235,10 @@ func (s *instanceStore) Add(instance *managementv1.DevPodWorkspaceInstance) {
 	s.m.Unlock()
 }
 
-func (s *instanceStore) Update(oldInstance *managementv1.DevPodWorkspaceInstance, newInstance *managementv1.DevPodWorkspaceInstance) {
+func (s *instanceStore) Update(
+	oldInstance *managementv1.DevPodWorkspaceInstance,
+	newInstance *managementv1.DevPodWorkspaceInstance,
+) {
 	s.Add(newInstance)
 }
 
@@ -271,12 +288,16 @@ func (s *instanceStore) List() []*ProWorkspaceInstance {
 				s.m.Unlock()
 
 				var source *provider.WorkspaceSource
-				if instance.GetAnnotations() != nil && instance.GetAnnotations()[storagev1.DevPodWorkspaceSourceAnnotation] != "" {
-					source = provider.ParseWorkspaceSource(instance.GetAnnotations()[storagev1.DevPodWorkspaceSourceAnnotation])
+				if instance.GetAnnotations() != nil &&
+					instance.GetAnnotations()[storagev1.DevPodWorkspaceSourceAnnotation] != "" {
+					source = provider.ParseWorkspaceSource(
+						instance.GetAnnotations()[storagev1.DevPodWorkspaceSourceAnnotation],
+					)
 				}
 
 				var ideConfig *provider.WorkspaceIDEConfig
-				if instance.GetLabels() != nil && instance.GetLabels()[storagev1.DevPodWorkspaceIDLabel] != "" {
+				if instance.GetLabels() != nil &&
+					instance.GetLabels()[storagev1.DevPodWorkspaceIDLabel] != "" {
 					id := instance.GetLabels()[storagev1.DevPodWorkspaceIDLabel]
 					workspaceConfig, err := provider.LoadWorkspaceConfig(s.context, id)
 					if err == nil {

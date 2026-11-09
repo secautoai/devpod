@@ -12,14 +12,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// LogsCmd holds the cmd flags
+// LogsCmd holds the cmd flags.
 type LogsCmd struct {
 	*flags.GlobalFlags
 
 	ID string
 }
 
-// NewLogsCmd creates a new command
+// NewLogsCmd creates a new command.
 func NewLogsCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &LogsCmd{
 		GlobalFlags: flags,
@@ -28,8 +28,8 @@ func NewLogsCmd(flags *flags.GlobalFlags) *cobra.Command {
 		Use:   "logs",
 		Short: "Returns the workspace container logs",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return cmd.Run(context.Background())
+		RunE: func(cobraCmd *cobra.Command, _ []string) error {
+			return cmd.Run(cobraCmd.Context())
 		},
 	}
 	c.Flags().StringVar(&cmd.ID, "id", "", "The workspace id")
@@ -40,7 +40,12 @@ func NewLogsCmd(flags *flags.GlobalFlags) *cobra.Command {
 
 func (cmd *LogsCmd) Run(ctx context.Context) error {
 	// get workspace info
-	shouldExit, workspaceInfo, err := agent.ReadAgentWorkspaceInfo(cmd.AgentDir, cmd.Context, cmd.ID, log.Default.ErrorStreamOnly())
+	shouldExit, workspaceInfo, err := agent.ReadAgentWorkspaceInfo(
+		cmd.AgentDir,
+		cmd.Context,
+		cmd.ID,
+		log.Default.ErrorStreamOnly(),
+	)
 	if err != nil {
 		return err
 	} else if shouldExit {
@@ -49,7 +54,12 @@ func (cmd *LogsCmd) Run(ctx context.Context) error {
 	logger := log.Default.ErrorStreamOnly()
 
 	// create new runner
-	runner, err := devcontainer.NewRunner(agent.ContainerDevPodHelperLocation, agent.DefaultAgentDownloadURL(), workspaceInfo, logger)
+	runner, err := devcontainer.NewRunner(
+		agent.ContainerDevPodHelperLocation,
+		agent.DefaultAgentDownloadURL(),
+		workspaceInfo,
+		logger,
+	)
 	if err != nil {
 		return fmt.Errorf("create runner: %w", err)
 	}

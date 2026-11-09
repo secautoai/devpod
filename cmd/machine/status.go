@@ -13,14 +13,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// StatusCmd holds the configuration
+// StatusCmd holds the configuration.
 type StatusCmd struct {
 	*flags.GlobalFlags
 
 	Output string
 }
 
-// NewStatusCmd creates a new destroy command
+// NewStatusCmd creates a new status command.
 func NewStatusCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &StatusCmd{
 		GlobalFlags: flags,
@@ -28,16 +28,16 @@ func NewStatusCmd(flags *flags.GlobalFlags) *cobra.Command {
 	statusCmd := &cobra.Command{
 		Use:   "status [name]",
 		Short: "Retrieves the status of an existing machine",
-		RunE: func(_ *cobra.Command, args []string) error {
-			return cmd.Run(context.Background(), args)
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			return cmd.Run(cobraCmd.Context(), args)
 		},
 	}
 
-	statusCmd.Flags().StringVar(&cmd.Output, "output", "plain", "Status shows the machine status")
+	statusCmd.Flags().StringVar(&cmd.Output, "output", "plain", "Output format: plain or json")
 	return statusCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *StatusCmd) Run(ctx context.Context, args []string) error {
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
@@ -59,9 +59,19 @@ func (cmd *StatusCmd) Run(ctx context.Context, args []string) error {
 	case "plain":
 		switch machineStatus {
 		case client.StatusStopped:
-			log.Default.Infof("Machine '%s' is '%s', you can start it via 'devpod machine start %s'", machineClient.Machine(), machineStatus, machineClient.Machine())
+			log.Default.Infof(
+				"Machine '%s' is '%s', you can start it via 'devpod machine start %s'",
+				machineClient.Machine(),
+				machineStatus,
+				machineClient.Machine(),
+			)
 		case client.StatusBusy:
-			log.Default.Infof("Machine '%s' is '%s', which means its currently unaccessible. This is usually resolved by waiting a couple of minutes", machineClient.Machine(), machineStatus)
+			log.Default.Infof(
+				"Machine '%s' is '%s', which means its currently unaccessible. "+
+					"This is usually resolved by waiting a couple of minutes",
+				machineClient.Machine(),
+				machineStatus,
+			)
 		case client.StatusNotFound:
 			log.Default.Infof("Machine '%s' is '%s'", machineClient.Machine(), machineStatus)
 		default:
@@ -85,7 +95,10 @@ func (cmd *StatusCmd) Run(ctx context.Context, args []string) error {
 
 		fmt.Print(string(out))
 	default:
-		return fmt.Errorf("unexpected output format, choose either json or plain. Got %s", cmd.Output)
+		return fmt.Errorf(
+			"unexpected output format, choose either json or plain. Got %s",
+			cmd.Output,
+		)
 	}
 
 	return nil

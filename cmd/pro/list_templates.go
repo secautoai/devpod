@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// ListTemplatesCmd holds the cmd flags
+// ListTemplatesCmd holds the cmd flags.
 type ListTemplatesCmd struct {
 	*flags.GlobalFlags
 	Log log.Logger
@@ -24,7 +24,7 @@ type ListTemplatesCmd struct {
 	Project string
 }
 
-// NewListTemplatesCmd creates a new command
+// NewListTemplatesCmd creates a new command.
 func NewListTemplatesCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &ListTemplatesCmd{
 		GlobalFlags: globalFlags,
@@ -35,7 +35,13 @@ func NewListTemplatesCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 		Short:  "List templates",
 		Hidden: true,
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
-			devPodConfig, provider, err := findProProvider(cobraCmd.Context(), cmd.Context, cmd.Provider, cmd.Host, cmd.Log)
+			devPodConfig, provider, err := findProProvider(
+				cobraCmd.Context(),
+				cmd.Context,
+				cmd.Provider,
+				cmd.Host,
+				cmd.Log,
+			)
 			if err != nil {
 				return err
 			}
@@ -52,7 +58,11 @@ func NewListTemplatesCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	return c
 }
 
-func (cmd *ListTemplatesCmd) Run(ctx context.Context, devPodConfig *config.Config, provider *provider.ProviderConfig) error {
+func (cmd *ListTemplatesCmd) Run(
+	ctx context.Context,
+	devPodConfig *config.Config,
+	provider *provider.ProviderConfig,
+) error {
 	opts := devPodConfig.ProviderOptions(provider.Name)
 	opts[platform.ProjectEnv] = config.OptionValue{Value: cmd.Project}
 

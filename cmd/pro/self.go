@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// SelfCmd holds the cmd flags
+// SelfCmd holds the cmd flags.
 type SelfCmd struct {
 	*flags.GlobalFlags
 	Log log.Logger
@@ -22,7 +22,7 @@ type SelfCmd struct {
 	Host string
 }
 
-// NewSelfCmd creates a new command
+// NewSelfCmd creates a new command.
 func NewSelfCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &SelfCmd{
 		GlobalFlags: globalFlags,
@@ -33,7 +33,13 @@ func NewSelfCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 		Short:  "Get self",
 		Hidden: true,
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
-			devPodConfig, provider, err := findProProvider(cobraCmd.Context(), cmd.Context, cmd.Provider, cmd.Host, cmd.Log)
+			devPodConfig, provider, err := findProProvider(
+				cobraCmd.Context(),
+				cmd.Context,
+				cmd.Provider,
+				cmd.Host,
+				cmd.Log,
+			)
 			if err != nil {
 				return err
 			}
@@ -48,7 +54,11 @@ func NewSelfCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	return c
 }
 
-func (cmd *SelfCmd) Run(ctx context.Context, devPodConfig *config.Config, provider *provider.ProviderConfig) error {
+func (cmd *SelfCmd) Run(
+	ctx context.Context,
+	devPodConfig *config.Config,
+	provider *provider.ProviderConfig,
+) error {
 	var buf bytes.Buffer
 	// ignore --debug because we tunnel json through stdio
 	cmd.Log.SetLevel(logrus.InfoLevel)

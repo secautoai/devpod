@@ -5,11 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	managementv1 "github.com/loft-sh/api/v4/pkg/apis/management/v1"
+	managementv1 "github.com/skevetter/api/pkg/apis/management/v1"
 	clientpkg "github.com/skevetter/devpod/pkg/client"
 	"github.com/skevetter/devpod/pkg/platform"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func (c *client) Stop(ctx context.Context, opt clientpkg.StopOptions) error {
@@ -20,7 +19,8 @@ func (c *client) Stop(ctx context.Context, opt clientpkg.StopOptions) error {
 	if err != nil {
 		return err
 	}
-	workspace, err := platform.FindInstance(ctx, baseClient, c.workspace.UID)
+	opts := platform.FindInstanceOptions{UID: c.workspace.UID}
+	workspace, err := platform.FindInstance(ctx, baseClient, opts)
 	if err != nil {
 		return err
 	} else if workspace == nil {
@@ -33,11 +33,14 @@ func (c *client) Stop(ctx context.Context, opt clientpkg.StopOptions) error {
 	}
 
 	rawOptions, _ := json.Marshal(opt)
-	retStop, err := managementClient.Loft().ManagementV1().DevPodWorkspaceInstances(workspace.Namespace).Stop(ctx, workspace.Name, &managementv1.DevPodWorkspaceInstanceStop{
-		Spec: managementv1.DevPodWorkspaceInstanceStopSpec{
-			Options: string(rawOptions),
-		},
-	}, metav1.CreateOptions{})
+	retStop, err := managementClient.Loft().
+		ManagementV1().
+		DevPodWorkspaceInstances(workspace.Namespace).
+		Stop(ctx, workspace.Name, &managementv1.DevPodWorkspaceInstanceStop{
+			Spec: managementv1.DevPodWorkspaceInstanceStopSpec{
+				Options: string(rawOptions),
+			},
+		}, metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("error stopping workspace: %w", err)
 	} else if retStop.Status.TaskID == "" {

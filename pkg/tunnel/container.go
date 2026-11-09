@@ -6,6 +6,7 @@ package tunnel
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -22,7 +23,7 @@ import (
 )
 
 // NewContainerTunnel constructs a ContainerTunnel using the workspace client, if proxy is True then
-// the workspace's agent config is not periodically updated
+// the workspace's agent config is not periodically updated.
 func NewContainerTunnel(client client.WorkspaceClient, log log.Logger) *ContainerTunnel {
 	updateConfigInterval := time.Second * 30
 	return &ContainerTunnel{
@@ -32,18 +33,24 @@ func NewContainerTunnel(client client.WorkspaceClient, log log.Logger) *Containe
 	}
 }
 
-// ContainerTunnel manages the state of the tunnel to the container
+// ContainerTunnel manages the state of the tunnel to the container.
 type ContainerTunnel struct {
 	client               client.WorkspaceClient
 	updateConfigInterval time.Duration
 	log                  log.Logger
 }
 
-// Handler defines what to do once the tunnel has a client established
+// Handler defines what to do once the tunnel has a client established.
 type Handler func(ctx context.Context, containerClient *ssh.Client) error
 
-// Run creates an "outer" tunnel to the host to start the SSH server so that the "inner" tunnel can connect to the container over SSH
-func (c *ContainerTunnel) Run(ctx context.Context, handler Handler, cfg *config.Config, envVars map[string]string) error {
+// Run creates an "outer" tunnel to the host to start the SSH server so that the "inner" tunnel can
+// connect to the container over SSH.
+func (c *ContainerTunnel) Run(
+	ctx context.Context,
+	handler Handler,
+	cfg *config.Config,
+	envVars map[string]string,
+) error {
 	if handler == nil {
 		return nil
 	}
@@ -145,7 +152,7 @@ func (c *ContainerTunnel) Run(ctx context.Context, handler Handler, cfg *config.
 	}
 }
 
-// updateConfig is called periodically to keep the workspace agent config up to date
+// updateConfig is called periodically to keep the workspace agent config up to date.
 func (c *ContainerTunnel) updateConfig(ctx context.Context, sshClient *ssh.Client) {
 	for {
 		select {
@@ -170,14 +177,17 @@ func (c *ContainerTunnel) updateConfig(ctx context.Context, sshClient *ssh.Clien
 
 			// update workspace remotely
 			buf := &bytes.Buffer{}
-			command := fmt.Sprintf("'%s' agent workspace update-config --workspace-info '%s'", c.client.AgentPath(), workspaceInfo)
+			command := fmt.Sprintf(
+				"'%s' agent workspace update-config --workspace-info '%s'",
+				c.client.AgentPath(),
+				workspaceInfo,
+			)
 			if agentInfo.Agent.DataPath != "" {
 				command += fmt.Sprintf(" --agent-dir '%s'", agentInfo.Agent.DataPath)
 			}
 
 			c.log.Debugf("Run command in container: %s", command)
-			err = devssh.Run(devssh.RunOptions{
-				Context: ctx,
+			err = devssh.Run(ctx, devssh.RunOptions{
 				Client:  sshClient,
 				Command: command,
 				Stdout:  buf,
@@ -192,8 +202,13 @@ func (c *ContainerTunnel) updateConfig(ctx context.Context, sshClient *ssh.Clien
 	}
 }
 
-// runInContainer uses the connected SSH client to execute handler on the remote
-func (c *ContainerTunnel) runInContainer(ctx context.Context, sshClient *ssh.Client, handler Handler, envVars map[string]string) error {
+// runInContainer uses the connected SSH client to execute handler on the remote.
+func (c *ContainerTunnel) runInContainer(
+	ctx context.Context,
+	sshClient *ssh.Client,
+	handler Handler,
+	envVars map[string]string,
+) error {
 	// compress info
 	workspaceInfo, _, err := c.client.AgentInfo(provider.CLIOptions{})
 	if err != nil {
@@ -226,12 +241,15 @@ func (c *ContainerTunnel) runInContainer(ctx context.Context, sshClient *ssh.Cli
 		c.log.Debugf("Run container tunnel")
 		defer c.log.Debugf("Container tunnel exited")
 
-		command := fmt.Sprintf("'%s' agent container-tunnel --workspace-info '%s'", c.client.AgentPath(), workspaceInfo)
+		command := fmt.Sprintf(
+			"'%s' agent container-tunnel --workspace-info '%s'",
+			c.client.AgentPath(),
+			workspaceInfo,
+		)
 		if c.log.GetLevel() == logrus.DebugLevel {
 			command += " --debug"
 		}
-		if err := devssh.Run(devssh.RunOptions{
-			Context: cancelCtx,
+		if err := devssh.Run(cancelCtx, devssh.RunOptions{
 			Client:  sshClient,
 			Command: command,
 			Stdin:   stdinReader,
@@ -239,7 +257,11 @@ func (c *ContainerTunnel) runInContainer(ctx context.Context, sshClient *ssh.Cli
 			Stderr:  writer,
 			EnvVars: envVars,
 		}); err != nil {
-			c.log.Errorf("Error tunneling to container: %v", err)
+			if errors.Is(err, context.Canceled) {
+				c.log.Debugf("container tunnel closed: %v", err)
+			} else {
+				c.log.Errorf("error tunneling to container: %v", err)
+			}
 			return
 		}
 	}()

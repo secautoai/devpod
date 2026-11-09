@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 
-	managementv1 "github.com/loft-sh/api/v4/pkg/apis/management/v1"
+	managementv1 "github.com/skevetter/api/pkg/apis/management/v1"
 	"github.com/skevetter/devpod/cmd/pro/flags"
 	"github.com/skevetter/devpod/pkg/platform"
 	"github.com/skevetter/devpod/pkg/platform/client"
@@ -19,14 +19,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// WorkspaceCmd holds the cmd flags
+// WorkspaceCmd holds the cmd flags.
 type WorkspaceCmd struct {
 	*flags.GlobalFlags
 
 	Log log.Logger
 }
 
-// NewWorkspaceCmd creates a new command
+// NewWorkspaceCmd creates a new command.
 func NewWorkspaceCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &WorkspaceCmd{
 		GlobalFlags: globalFlags,
@@ -45,7 +45,12 @@ func NewWorkspaceCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	return c
 }
 
-func (cmd *WorkspaceCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func (cmd *WorkspaceCmd) Run(
+	ctx context.Context,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	baseClient, err := client.InitClientFromPath(ctx, cmd.Config)
 	if err != nil {
 		return err
@@ -57,14 +62,22 @@ func (cmd *WorkspaceCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Wri
 		newInstance := &managementv1.DevPodWorkspaceInstance{}
 		err := json.Unmarshal([]byte(instanceEnv), newInstance)
 		if err != nil {
-			return fmt.Errorf("unmarshal workpace instance %s: %w", instanceEnv, err)
+			return fmt.Errorf("unmarshal workspace instance %s: %w", instanceEnv, err)
 		}
 		newInstance.TypeMeta = metav1.TypeMeta{} // ignore
 
 		projectName := project.ProjectFromNamespace(newInstance.GetNamespace())
-		oldInstance, err := platform.FindInstanceByName(ctx, baseClient, newInstance.GetName(), projectName)
+		opts := platform.FindInstanceOptions{Name: newInstance.GetName(), ProjectName: projectName}
+		oldInstance, err := platform.FindInstance(ctx, baseClient, opts)
 		if err != nil {
 			return err
+		}
+		if oldInstance == nil {
+			return fmt.Errorf(
+				"workspace instance %q not found in project %q",
+				newInstance.GetName(),
+				projectName,
+			)
 		}
 
 		updatedInstance, err := updateInstance(ctx, baseClient, oldInstance, newInstance, cmd.Log)
@@ -89,12 +102,25 @@ func (cmd *WorkspaceCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Wri
 	workspaceUID := os.Getenv(platform.WorkspaceUIDEnv)
 	project := os.Getenv(platform.ProjectEnv)
 	if workspaceUID == "" || workspaceID == "" || project == "" {
-		return fmt.Errorf("workspaceID, workspaceUID or project not found: %s, %s, %s", workspaceID, workspaceUID, project)
+		return fmt.Errorf(
+			"workspaceID, workspaceUID or project not found: %s, %s, %s",
+			workspaceID,
+			workspaceUID,
+			project,
+		)
 	}
 
-	oldInstance, err := platform.FindInstanceInProject(ctx, baseClient, workspaceUID, project)
+	opts := platform.FindInstanceOptions{UID: workspaceUID, ProjectName: project}
+	oldInstance, err := platform.FindInstance(ctx, baseClient, opts)
 	if err != nil {
 		return err
+	}
+	if oldInstance == nil {
+		return fmt.Errorf(
+			"workspace instance with UID %q not found in project %q",
+			workspaceUID,
+			project,
+		)
 	}
 
 	newInstance, err := form.UpdateInstance(ctx, baseClient, oldInstance, cmd.Log)
@@ -110,7 +136,13 @@ func (cmd *WorkspaceCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Wri
 	return nil
 }
 
-func updateInstance(ctx context.Context, client client.Client, oldInstance *managementv1.DevPodWorkspaceInstance, newInstance *managementv1.DevPodWorkspaceInstance, log log.Logger) (*managementv1.DevPodWorkspaceInstance, error) {
+func updateInstance(
+	ctx context.Context,
+	client client.Client,
+	oldInstance *managementv1.DevPodWorkspaceInstance,
+	newInstance *managementv1.DevPodWorkspaceInstance,
+	log log.Logger,
+) (*managementv1.DevPodWorkspaceInstance, error) {
 	// This ensures the template is kept up to date with configuration changes
 	if newInstance.Spec.TemplateRef != nil {
 		newInstance.Spec.TemplateRef.SyncOnce = true

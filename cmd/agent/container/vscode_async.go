@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// VSCodeAsyncCmd holds the cmd flags
+// VSCodeAsyncCmd holds the cmd flags.
 type VSCodeAsyncCmd struct {
 	*flags.GlobalFlags
 
@@ -19,7 +19,7 @@ type VSCodeAsyncCmd struct {
 	Flavor    string
 }
 
-// NewVSCodeAsyncCmd creates a new command
+// NewVSCodeAsyncCmd creates a new command.
 func NewVSCodeAsyncCmd() *cobra.Command {
 	cmd := &VSCodeAsyncCmd{}
 	vsCodeAsyncCmd := &cobra.Command{
@@ -31,13 +31,13 @@ func NewVSCodeAsyncCmd() *cobra.Command {
 	vsCodeAsyncCmd.Flags().StringVar(&cmd.SetupInfo, "setup-info", "", "The container setup info")
 	_ = vsCodeAsyncCmd.MarkFlagRequired("setup-info")
 
-	vsCodeAsyncCmd.Flags().StringVar(&cmd.Flavor, "flavor", string(vscode.FlavorStable), "The flavor of the VSCode distribution")
+	vsCodeAsyncCmd.Flags().
+		StringVar(&cmd.Flavor, "flavor", string(vscode.FlavorStable), "The flavor of the VSCode distribution")
 	return vsCodeAsyncCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *VSCodeAsyncCmd) Run(_ *cobra.Command, _ []string) error {
-	log.Default.Debugf("Start setting up container...")
 	decompressed, err := compress.Decompress(cmd.SetupInfo)
 	if err != nil {
 		return err
@@ -49,7 +49,6 @@ func (cmd *VSCodeAsyncCmd) Run(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// install IDE
 	err = setupVSCodeExtensions(setupInfo, vscode.Flavor(cmd.Flavor), log.Default)
 	if err != nil {
 		return err

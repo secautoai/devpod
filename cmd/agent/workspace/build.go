@@ -12,14 +12,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// BuildCmd holds the cmd flags
+// BuildCmd holds the cmd flags.
 type BuildCmd struct {
 	*flags.GlobalFlags
 
 	WorkspaceInfo string
 }
 
-// NewBuildCmd creates a new command
+// NewBuildCmd creates a new command.
 func NewBuildCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &BuildCmd{
 		GlobalFlags: flags,
@@ -28,8 +28,8 @@ func NewBuildCmd(flags *flags.GlobalFlags) *cobra.Command {
 		Use:   "build",
 		Short: "Builds a devcontainer",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return cmd.Run(context.Background())
+		RunE: func(cobraCmd *cobra.Command, _ []string) error {
+			return cmd.Run(cobraCmd.Context())
 		},
 	}
 	buildCmd.Flags().StringVar(&cmd.WorkspaceInfo, "workspace-info", "", "The workspace info")
@@ -37,12 +37,16 @@ func NewBuildCmd(flags *flags.GlobalFlags) *cobra.Command {
 	return buildCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *BuildCmd) Run(ctx context.Context) error {
 	// write workspace info
-	shouldExit, workspaceInfo, err := agent.WriteWorkspaceInfoAndDeleteOld(cmd.WorkspaceInfo, func(workspaceInfo *provider2.AgentWorkspaceInfo, log log.Logger) error {
-		return deleteWorkspace(ctx, workspaceInfo, log)
-	}, log.Default.ErrorStreamOnly())
+	shouldExit, workspaceInfo, err := agent.WriteWorkspaceInfoAndDeleteOld(
+		cmd.WorkspaceInfo,
+		func(workspaceInfo *provider2.AgentWorkspaceInfo, log log.Logger) error {
+			return deleteWorkspace(ctx, workspaceInfo, log)
+		},
+		log.Default.ErrorStreamOnly(),
+	)
 	if err != nil {
 		return err
 	} else if shouldExit {
@@ -106,7 +110,11 @@ func (cmd *BuildCmd) Run(ctx context.Context) error {
 	return nil
 }
 
-func deleteWorkspace(ctx context.Context, workspaceInfo *provider2.AgentWorkspaceInfo, log log.Logger) error {
+func deleteWorkspace(
+	ctx context.Context,
+	workspaceInfo *provider2.AgentWorkspaceInfo,
+	log log.Logger,
+) error {
 	err := removeContainer(ctx, workspaceInfo, log)
 	if err != nil {
 		log.Errorf("Removing container: %v", err)

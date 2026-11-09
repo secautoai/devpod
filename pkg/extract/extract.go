@@ -105,7 +105,7 @@ func extractNext(tarReader *tar.Reader, destFolder string, options *Options) (bo
 	}
 
 	// whats the file perm?
-	filePerm := os.FileMode(0644)
+	filePerm := os.FileMode(0o644)
 	if options.Perm != nil {
 		filePerm = *options.Perm
 	}
@@ -155,7 +155,7 @@ func extractNext(tarReader *tar.Reader, destFolder string, options *Options) (bo
 
 	// Set permissions
 	if options.Perm == nil {
-		_ = os.Chmod(outFileName, header.FileInfo().Mode()|0600)
+		_ = os.Chmod(outFileName, header.FileInfo().Mode()|0o600) // #nosec G703
 	}
 
 	// Set mod time from tar header
@@ -165,5 +165,8 @@ func extractNext(tarReader *tar.Reader, destFolder string, options *Options) (bo
 }
 
 func getRelativeFromFullPath(fullpath string, prefix string) string {
-	return strings.TrimPrefix(strings.ReplaceAll(strings.ReplaceAll(fullpath[len(prefix):], "\\", "/"), "//", "/"), ".")
+	return strings.TrimPrefix(
+		strings.ReplaceAll(strings.ReplaceAll(fullpath[len(prefix):], "\\", "/"), "//", "/"),
+		".",
+	)
 }

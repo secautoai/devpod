@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/skevetter/devpod/cmd/pro/flags"
+	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/platform"
 	"github.com/skevetter/devpod/pkg/platform/client"
 	"github.com/skevetter/devpod/pkg/platform/remotecommand"
@@ -14,14 +15,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// SshCmd holds the cmd flags
+// SshCmd holds the cmd flags.
 type SshCmd struct {
 	*flags.GlobalFlags
 
 	Log log.Logger
 }
 
-// NewSshCmd creates a new command
+// NewSshCmd creates a new command.
 func NewSshCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &SshCmd{
 		GlobalFlags: globalFlags,
@@ -40,7 +41,12 @@ func NewSshCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	return c
 }
 
-func (cmd *SshCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func (cmd *SshCmd) Run(
+	ctx context.Context,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	baseClient, err := client.InitClientFromPath(ctx, cmd.Config)
 	if err != nil {
 		return err
@@ -50,14 +56,21 @@ func (cmd *SshCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Writer, s
 	if err != nil {
 		return err
 	}
-	workspace, err := platform.FindInstanceInProject(ctx, baseClient, info.UID, info.ProjectName)
+	opts := platform.FindInstanceOptions{UID: info.UID, ProjectName: info.ProjectName}
+	workspace, err := platform.FindInstance(ctx, baseClient, opts)
 	if err != nil {
 		return err
 	} else if workspace == nil {
 		return fmt.Errorf("couldn't find workspace")
 	}
 
-	conn, err := platform.DialInstance(baseClient, workspace, "ssh", platform.OptionsFromEnv("DEVPOD_FLAGS_SSH"), cmd.Log)
+	conn, err := platform.DialInstance(
+		baseClient,
+		workspace,
+		"ssh",
+		platform.OptionsFromEnv(config.EnvFlagsSSH),
+		cmd.Log,
+	)
 	if err != nil {
 		return err
 	}

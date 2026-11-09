@@ -21,57 +21,114 @@ import (
 	"github.com/skevetter/log"
 )
 
-func RunLifecycleHooks(ctx context.Context, setupInfo *config.Result, log log.Logger) error {
+// lifecycleEnv holds the resolved environment for running lifecycle hooks.
+type lifecycleEnv struct {
+	remoteUser      string
+	workspaceFolder string
+	remoteEnv       map[string]string
+}
+
+func resolveLifecycleEnv(
+	ctx context.Context,
+	setupInfo *config.Result,
+	log log.Logger,
+) lifecycleEnv {
 	mergedConfig := setupInfo.MergedConfig
 	remoteUser := config.GetRemoteUser(setupInfo)
 	probedEnv, err := config.ProbeUserEnv(ctx, mergedConfig.UserEnvProbe, remoteUser, log)
 	if err != nil {
-		log.WithFields(logrus.Fields{"error": err}).Error("failed to probe environment, this might lead to an incomplete setup of your workspace")
+		log.Errorf(
+			"failed to probe environment, this might lead to an incomplete setup of your workspace: error=%v",
+			err,
+		)
 	}
-	remoteEnv := mergeRemoteEnv(mergedConfig.RemoteEnv, probedEnv, remoteUser)
 
-	workspaceFolder := setupInfo.SubstitutionContext.ContainerWorkspaceFolder
+	return lifecycleEnv{
+		remoteUser:      remoteUser,
+		workspaceFolder: setupInfo.SubstitutionContext.ContainerWorkspaceFolder,
+		remoteEnv:       mergeRemoteEnv(mergedConfig.RemoteEnv, probedEnv, remoteUser),
+	}
+}
+
+// RunPreAttachHooks runs lifecycle hooks up to and including postStartCommand.
+// These must complete before the IDE can be opened.
+func RunPreAttachHooks(ctx context.Context, setupInfo *config.Result, log log.Logger) error {
+	env := resolveLifecycleEnv(ctx, setupInfo, log)
 	containerDetails := setupInfo.ContainerDetails
+	mergedConfig := setupInfo.MergedConfig
 
 	// only run once per container run
-	err = run(mergedConfig.OnCreateCommands, remoteUser, workspaceFolder, remoteEnv,
-		"onCreateCommands", containerDetails.Created, log)
-	if err != nil {
+	if err := run(mergedConfig.OnCreateCommands, env.remoteUser, env.workspaceFolder, env.remoteEnv,
+		"onCreateCommands", containerDetails.Created, log); err != nil {
 		return err
 	}
 
 	// TODO: rerun when contents changed
-	err = run(mergedConfig.UpdateContentCommands, remoteUser, workspaceFolder, remoteEnv,
-		"updateContentCommands", containerDetails.Created, log)
-	if err != nil {
+	if err := run(
+		mergedConfig.UpdateContentCommands,
+		env.remoteUser,
+		env.workspaceFolder,
+		env.remoteEnv,
+		"updateContentCommands",
+		containerDetails.Created,
+		log,
+	); err != nil {
 		return err
 	}
 
 	// only run once per container run
-	err = run(mergedConfig.PostCreateCommands, remoteUser, workspaceFolder, remoteEnv,
-		"postCreateCommands", containerDetails.Created, log)
-	if err != nil {
+	if err := run(
+		mergedConfig.PostCreateCommands,
+		env.remoteUser,
+		env.workspaceFolder,
+		env.remoteEnv,
+		"postCreateCommands",
+		containerDetails.Created,
+		log,
+	); err != nil {
 		return err
 	}
 
 	// run when the container was restarted
-	err = run(mergedConfig.PostStartCommands, remoteUser, workspaceFolder, remoteEnv,
-		"postStartCommands", containerDetails.State.StartedAt, log)
-	if err != nil {
-		return err
-	}
-
-	// run always when attaching to the container
-	err = run(mergedConfig.PostAttachCommands, remoteUser, workspaceFolder, remoteEnv,
-		"postAttachCommands", "", log)
-	if err != nil {
+	if err := run(
+		mergedConfig.PostStartCommands,
+		env.remoteUser,
+		env.workspaceFolder,
+		env.remoteEnv,
+		"postStartCommands",
+		containerDetails.State.StartedAt,
+		log,
+	); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func run(commands []types.LifecycleHook, remoteUser, dir string, remoteEnv map[string]string, name, content string, log log.Logger) error {
+// RunPostAttachHooks runs postAttachCommand only.
+// These run after the IDE has been opened and can be long-running.
+func RunPostAttachHooks(ctx context.Context, setupInfo *config.Result, log log.Logger) error {
+	env := resolveLifecycleEnv(ctx, setupInfo, log)
+
+	// run always when attaching to the container
+	return run(
+		setupInfo.MergedConfig.PostAttachCommands,
+		env.remoteUser,
+		env.workspaceFolder,
+		env.remoteEnv,
+		"postAttachCommands",
+		"",
+		log,
+	)
+}
+
+func run(
+	commands []types.LifecycleHook,
+	remoteUser, dir string,
+	remoteEnv map[string]string,
+	name, content string,
+	log log.Logger,
+) error {
 	if len(commands) == 0 {
 		return nil
 	}
@@ -148,11 +205,16 @@ func run(commands []types.LifecycleHook, remoteUser, dir string, remoteEnv map[s
 			wg.Wait()
 			err = cmd.Wait()
 			if err != nil {
-				log.WithFields(logrus.Fields{"command": cmd.Args, "error": err}).Debug("failed running postCreateCommand lifecycle script")
+				log.Debugf(
+					"failed running %s lifecycle script: command=%v, error=%v",
+					k,
+					cmd.Args,
+					err,
+				)
 				return fmt.Errorf("failed to run: %s, error: %w", strings.Join(c, " "), err)
 			}
 
-			log.WithFields(logrus.Fields{"command": k, "args": strings.Join(c, " ")}).Done("ran command")
+			log.Donef("ran command: command=%s, args=%s", k, strings.Join(c, " "))
 		}
 	}
 
@@ -175,7 +237,7 @@ func logPipeOutput(log log.Logger, pipe io.ReadCloser, level logrus.Level) {
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		log.WithFields(logrus.Fields{"error": err}).Error("error reading pipe")
+		log.Errorf("error reading pipe: error=%v", err)
 	}
 }
 
@@ -184,7 +246,11 @@ func containsError(line string) bool {
 	return strings.Contains(strings.ToLower(line), "error")
 }
 
-func mergeRemoteEnv(remoteEnv map[string]string, probedEnv map[string]string, remoteUser string) map[string]string {
+func mergeRemoteEnv(
+	remoteEnv map[string]string,
+	probedEnv map[string]string,
+	remoteUser string,
+) map[string]string {
 	retEnv := map[string]string{}
 
 	// Order matters here

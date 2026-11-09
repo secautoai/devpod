@@ -11,12 +11,14 @@ import (
 	"github.com/skevetter/devpod/pkg/command"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/ide"
+	"github.com/skevetter/devpod/pkg/ide/codeserver"
 	"github.com/skevetter/devpod/pkg/ide/fleet"
 	"github.com/skevetter/devpod/pkg/ide/jetbrains"
 	"github.com/skevetter/devpod/pkg/ide/jupyter"
 	"github.com/skevetter/devpod/pkg/ide/openvscode"
 	"github.com/skevetter/devpod/pkg/ide/rstudio"
 	"github.com/skevetter/devpod/pkg/ide/vscode"
+	"github.com/skevetter/devpod/pkg/ide/vscodeweb"
 	"github.com/skevetter/devpod/pkg/provider"
 )
 
@@ -42,29 +44,45 @@ var AllowedIDEs = []AllowedIDE{
 		Name:        config.IDENone,
 		DisplayName: "None",
 		Options:     map[string]ide.Option{},
-		Icon:        "https://devpod.sh/assets/none.svg",
-		IconDark:    "https://devpod.sh/assets/none_dark.svg",
+		Icon:        config.WebsiteAssetsURL + "/none.svg",
+		IconDark:    config.WebsiteAssetsURL + "/none_dark.svg",
 		Group:       config.IDEGroupPrimary,
 	},
 	{
 		Name:        config.IDEVSCode,
 		DisplayName: "VS Code",
 		Options:     vscode.Options,
-		Icon:        "https://devpod.sh/assets/vscode.svg",
+		Icon:        config.WebsiteAssetsURL + "/vscode.svg",
 		Group:       config.IDEGroupPrimary,
 	},
 	{
 		Name:        config.IDEOpenVSCode,
-		DisplayName: "VS Code Browser",
+		DisplayName: "OpenVSCode Server",
 		Options:     openvscode.Options,
-		Icon:        "https://devpod.sh/assets/vscodebrowser.svg",
-		Group:       config.IDEGroupPrimary,
+		Icon:        config.WebsiteAssetsURL + "/vscodebrowser.svg",
+		Group:       config.IDEGroupBrowser,
+	},
+	{
+		Name:         config.IDEVSCodeWeb,
+		DisplayName:  "VS Code Web",
+		Options:      vscodeweb.Options,
+		Icon:         config.WebsiteAssetsURL + "/vscodebrowser.svg",
+		Experimental: true,
+		Group:        config.IDEGroupBrowser,
+	},
+	{
+		Name:         config.IDECodeServer,
+		DisplayName:  "code-server",
+		Options:      codeserver.Options,
+		Icon:         config.WebsiteAssetsURL + "/vscodebrowser.svg",
+		Experimental: true,
+		Group:        config.IDEGroupBrowser,
 	},
 	{
 		Name:         config.IDECursor,
 		DisplayName:  "Cursor",
 		Options:      vscode.Options,
-		Icon:         "https://devpod.sh/assets/cursor.svg",
+		Icon:         config.WebsiteAssetsURL + "/cursor.svg",
 		Experimental: true,
 		Group:        config.IDEGroupPrimary,
 	},
@@ -72,7 +90,7 @@ var AllowedIDEs = []AllowedIDE{
 		Name:         config.IDEZed,
 		DisplayName:  "Zed",
 		Options:      ide.Options{},
-		Icon:         "https://devpod.sh/assets/zed.svg",
+		Icon:         config.WebsiteAssetsURL + "/zed.svg",
 		Experimental: true,
 		Group:        config.IDEGroupPrimary,
 	},
@@ -80,94 +98,94 @@ var AllowedIDEs = []AllowedIDE{
 		Name:         config.IDECodium,
 		DisplayName:  "VSCodium",
 		Options:      vscode.Options,
-		Icon:         "https://devpod.sh/assets/codium.svg",
+		Icon:         config.WebsiteAssetsURL + "/codium.svg",
 		Experimental: true,
 		Group:        config.IDEGroupPrimary,
 	},
 	{
 		Name:        config.IDEIntellij,
-		DisplayName: "Intellij",
+		DisplayName: "IntelliJ IDEA",
 		Options:     jetbrains.IntellijOptions,
-		Icon:        "https://devpod.sh/assets/intellij.svg",
+		Icon:        config.WebsiteAssetsURL + "/intellij.svg",
 		Group:       config.IDEGroupJetBrains,
 	},
 	{
 		Name:        config.IDEPyCharm,
 		DisplayName: "PyCharm",
 		Options:     jetbrains.PyCharmOptions,
-		Icon:        "https://devpod.sh/assets/pycharm.svg",
+		Icon:        config.WebsiteAssetsURL + "/pycharm.svg",
 		Group:       config.IDEGroupJetBrains,
 	},
 	{
 		Name:        config.IDEPhpStorm,
 		DisplayName: "PhpStorm",
 		Options:     jetbrains.PhpStormOptions,
-		Icon:        "https://devpod.sh/assets/phpstorm.svg",
+		Icon:        config.WebsiteAssetsURL + "/phpstorm.svg",
 		Group:       config.IDEGroupJetBrains,
 	},
 	{
 		Name:        config.IDERider,
 		DisplayName: "Rider",
 		Options:     jetbrains.RiderOptions,
-		Icon:        "https://devpod.sh/assets/rider.svg",
+		Icon:        config.WebsiteAssetsURL + "/rider.svg",
 		Group:       config.IDEGroupJetBrains,
 	},
 	{
 		Name:         config.IDEFleet,
 		DisplayName:  "Fleet",
 		Options:      fleet.Options,
-		Icon:         "https://devpod.sh/assets/fleet.svg",
+		Icon:         config.WebsiteAssetsURL + "/fleet.svg",
 		Experimental: true,
 		Group:        config.IDEGroupJetBrains,
 	},
 	{
 		Name:        config.IDEGoland,
-		DisplayName: "Goland",
+		DisplayName: "GoLand",
 		Options:     jetbrains.GolandOptions,
-		Icon:        "https://devpod.sh/assets/goland.svg",
+		Icon:        config.WebsiteAssetsURL + "/goland.svg",
 		Group:       config.IDEGroupJetBrains,
 	},
 	{
 		Name:        config.IDEWebStorm,
 		DisplayName: "WebStorm",
 		Options:     jetbrains.WebStormOptions,
-		Icon:        "https://devpod.sh/assets/webstorm.svg",
+		Icon:        config.WebsiteAssetsURL + "/webstorm.svg",
 		Group:       config.IDEGroupJetBrains,
 	},
 	{
 		Name:        config.IDERustRover,
 		DisplayName: "RustRover",
 		Options:     jetbrains.RustRoverOptions,
-		Icon:        "https://devpod.sh/assets/rustrover.svg",
+		Icon:        config.WebsiteAssetsURL + "/rustrover.svg",
 		Group:       config.IDEGroupJetBrains,
 	},
 	{
 		Name:        config.IDERubyMine,
 		DisplayName: "RubyMine",
 		Options:     jetbrains.RubyMineOptions,
-		Icon:        "https://devpod.sh/assets/rubymine.svg",
+		Icon:        config.WebsiteAssetsURL + "/rubymine.svg",
 		Group:       config.IDEGroupJetBrains,
 	},
 	{
 		Name:        config.IDECLion,
 		DisplayName: "CLion",
 		Options:     jetbrains.CLionOptions,
-		Icon:        "https://devpod.sh/assets/clion.svg",
+		Icon:        config.WebsiteAssetsURL + "/clion.svg",
 		Group:       config.IDEGroupJetBrains,
 	},
 	{
 		Name:        config.IDEDataSpell,
 		DisplayName: "DataSpell",
 		Options:     jetbrains.DataSpellOptions,
-		Icon:        "https://devpod.sh/assets/dataspell.svg",
+		Icon:        config.WebsiteAssetsURL + "/dataspell.svg",
 		Group:       config.IDEGroupJetBrains,
 	},
 	{
 		Name:         config.IDEJupyterNotebook,
 		DisplayName:  "Jupyter Notebook",
 		Options:      jupyter.Options,
-		Icon:         "https://devpod.sh/assets/jupyter.svg",
-		IconDark:     "https://devpod.sh/assets/jupyter_dark.svg",
+		Icon:         config.WebsiteAssetsURL + "/jupyter.svg",
+		IconDark:     config.WebsiteAssetsURL + "/jupyter_dark.svg",
 		Experimental: true,
 		Group:        config.IDEGroupOther,
 	},
@@ -175,7 +193,7 @@ var AllowedIDEs = []AllowedIDE{
 		Name:         config.IDEVSCodeInsiders,
 		DisplayName:  "VS Code Insiders",
 		Options:      vscode.Options,
-		Icon:         "https://devpod.sh/assets/vscode_insiders.svg",
+		Icon:         config.WebsiteAssetsURL + "/vscode_insiders.svg",
 		Experimental: true,
 		Group:        config.IDEGroupOther,
 	},
@@ -183,7 +201,7 @@ var AllowedIDEs = []AllowedIDE{
 		Name:         config.IDEPositron,
 		DisplayName:  "Positron",
 		Options:      vscode.Options,
-		Icon:         "https://devpod.sh/assets/positron.svg",
+		Icon:         config.WebsiteAssetsURL + "/positron.svg",
 		Experimental: true,
 		Group:        config.IDEGroupOther,
 	},
@@ -191,29 +209,42 @@ var AllowedIDEs = []AllowedIDE{
 		Name:         config.IDERStudio,
 		DisplayName:  "RStudio Server",
 		Options:      rstudio.Options,
-		Icon:         "https://devpod.sh/assets/rstudio.svg",
+		Icon:         config.WebsiteAssetsURL + "/rstudio.svg",
 		Experimental: true,
 		Group:        config.IDEGroupOther,
 	},
 	{
 		Name:         config.IDEWindsurf,
-		DisplayName:  "Windsurf",
+		DisplayName:  "Windsurf Editor",
 		Options:      vscode.Options,
-		Icon:         "https://devpod.sh/assets/windsurf.svg",
+		Icon:         config.WebsiteAssetsURL + "/windsurf.svg",
 		Experimental: true,
 		Group:        config.IDEGroupPrimary,
 	},
 	{
 		Name:         config.IDEAntigravity,
-		DisplayName:  "Antigravity",
+		DisplayName:  "Google Antigravity",
 		Options:      vscode.Options,
-		Icon:         "https://devpod.sh/assets/antigravity.svg",
+		Icon:         config.WebsiteAssetsURL + "/antigravity.svg",
+		Experimental: true,
+		Group:        config.IDEGroupPrimary,
+	},
+	{
+		Name:         config.IDEBob,
+		DisplayName:  "IBM Bob",
+		Options:      vscode.Options,
+		Icon:         "https://devpod.sh/assets/bob.svg",
 		Experimental: true,
 		Group:        config.IDEGroupPrimary,
 	},
 }
 
-func RefreshIDEOptions(devPodConfig *config.Config, workspace *provider.Workspace, ide string, options []string) (*provider.Workspace, error) {
+func RefreshIDEOptions(
+	devPodConfig *config.Config,
+	workspace *provider.Workspace,
+	ide string,
+	options []string,
+) (*provider.Workspace, error) {
 	ide = strings.ToLower(ide)
 	if ide == "" {
 		if workspace.IDE.Name != "" {
@@ -312,7 +343,11 @@ func ParseOptions(options []string, ideOptions ide.Options) (map[string]config.O
 		value := strings.Join(splitted[1:], "=")
 		ideOption, ok := ideOptions[key]
 		if !ok {
-			return nil, fmt.Errorf("invalid option '%s', allowed options are: %v", key, allowedOptions)
+			return nil, fmt.Errorf(
+				"invalid option '%s', allowed options are: %v",
+				key,
+				allowedOptions,
+			)
 		}
 
 		if ideOption.ValidationPattern != "" {
@@ -326,14 +361,24 @@ func ParseOptions(options []string, ideOptions ide.Options) (map[string]config.O
 					return nil, fmt.Errorf("%s", ideOption.ValidationMessage)
 				}
 
-				return nil, fmt.Errorf("invalid value '%s' for option '%s', has to match the following regEx: %s", value, key, ideOption.ValidationPattern)
+				return nil, fmt.Errorf(
+					"invalid value '%s' for option '%s', has to match the following regEx: %s",
+					value,
+					key,
+					ideOption.ValidationPattern,
+				)
 			}
 		}
 
 		if len(ideOption.Enum) > 0 {
 			found := slices.Contains(ideOption.Enum, value)
 			if !found {
-				return nil, fmt.Errorf("invalid value '%s' for option '%s', has to match one of the following values: %v", value, key, ideOption.Enum)
+				return nil, fmt.Errorf(
+					"invalid value '%s' for option '%s', has to match one of the following values: %v",
+					value,
+					key,
+					ideOption.Enum,
+				)
 			}
 		}
 

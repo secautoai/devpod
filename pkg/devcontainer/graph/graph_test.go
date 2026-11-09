@@ -230,6 +230,7 @@ func (suite *GraphTestSuite) TestUpdateNode() {
 func TestGraphSuite(t *testing.T) {
 	suite.Run(t, new(GraphTestSuite))
 }
+
 func (suite *GraphTestSuite) TestEdgeCount() {
 	testCases := []struct {
 		name          string
@@ -294,6 +295,7 @@ func (suite *GraphTestSuite) TestEdgeCount() {
 		})
 	}
 }
+
 func (suite *GraphTestSuite) TestIsEmpty() {
 	suite.True(suite.graph.IsEmpty())
 
@@ -315,6 +317,7 @@ func (suite *GraphTestSuite) TestString() {
 	suite.Contains(output, "Graph: 2 nodes, 1 edges")
 	suite.Contains(output, "A -> [B]")
 }
+
 func (suite *GraphTestSuite) TestHasCircularDependency() {
 	suite.False(suite.graph.HasCircularDependency())
 
@@ -328,6 +331,7 @@ func (suite *GraphTestSuite) TestHasCircularDependency() {
 	suite.Require().NoError(suite.graph.AddEdge("B", "A"))
 	suite.True(suite.graph.HasCircularDependency())
 }
+
 func (suite *GraphTestSuite) TestSetNode() {
 	err := suite.graph.SetNode("new", "data")
 	suite.NoError(err)
@@ -415,6 +419,7 @@ func (suite *GraphTestSuite) TestGetAllNodes() {
 	suite.Equal("dataA", nodes["A"])
 	suite.Equal("dataB", nodes["B"])
 }
+
 func (suite *GraphTestSuite) TestEdgeCases() {
 	testCases := []struct {
 		name string
@@ -500,11 +505,13 @@ func (suite *GraphTestSuite) TestLargeGraph() {
 	nodeCount := 100
 
 	for i := range nodeCount {
-		suite.Require().NoError(suite.graph.AddNode(fmt.Sprintf("node%d", i), fmt.Sprintf("data%d", i)))
+		suite.Require().
+			NoError(suite.graph.AddNode(fmt.Sprintf("node%d", i), fmt.Sprintf("data%d", i)))
 	}
 
 	for i := 0; i < nodeCount-1; i++ {
-		suite.Require().NoError(suite.graph.AddEdge(fmt.Sprintf("node%d", i), fmt.Sprintf("node%d", i+1)))
+		suite.Require().
+			NoError(suite.graph.AddEdge(fmt.Sprintf("node%d", i), fmt.Sprintf("node%d", i+1)))
 	}
 
 	suite.Equal(nodeCount, suite.graph.NodeCount())
@@ -515,6 +522,7 @@ func (suite *GraphTestSuite) TestLargeGraph() {
 	suite.NoError(err)
 	suite.Len(result, nodeCount)
 }
+
 func (suite *GraphTestSuite) TestTopologicalSortAdvanced() {
 	testCases := []struct {
 		name    string

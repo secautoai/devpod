@@ -1,6 +1,7 @@
 package vscode
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -10,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kballard/go-shellquote"
+	"al.essio.dev/pkg/shellescape"
 	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/pkg/command"
 	"github.com/skevetter/devpod/pkg/config"
@@ -34,6 +35,7 @@ const (
 	FlavorCodium      Flavor = "codium"
 	FlavorWindsurf    Flavor = "windsurf"
 	FlavorAntigravity Flavor = "antigravity"
+	FlavorBob         Flavor = "bob"
 )
 
 const (
@@ -50,14 +52,21 @@ type flavorConfig struct {
 	binName     string
 }
 
+// Map of VS Code flavors. The correct configuration options can be found in
+// `resources/app/product.json` of the VS Code fork.
+//
+// - Display name
+// - Server directory, matching serverDataFolderName in `product.json`.
+// - Server binary name, matching serverApplicationName in `product.json`.
 var flavorConfigs = map[Flavor]flavorConfig{
 	FlavorStable:      {"VS Code", ".vscode-server", "code-server"},
 	FlavorInsiders:    {"VS Code Insiders", ".vscode-server-insiders", "code-server-insiders"},
 	FlavorCursor:      {"Cursor", ".cursor-server", "cursor-server"},
-	FlavorPositron:    {"positron", ".positron-server", "positron"},
-	FlavorCodium:      {"VSCodium", ".vscodium-server", "codium"},
-	FlavorWindsurf:    {"Windsurf", ".windsurf-server", "windsurf"},
-	FlavorAntigravity: {"Antigravity", ".antigravity-server", "agy"},
+	FlavorPositron:    {"positron", ".positron-server", "positron-server"},
+	FlavorCodium:      {"VSCodium", ".vscodium-server", "codium-server"},
+	FlavorWindsurf:    {"Windsurf", ".windsurf-server", "windsurf-server"},
+	FlavorAntigravity: {"Antigravity", ".antigravity-server", "antigravity-server"},
+	FlavorBob:         {"Bob", ".bobide-server", "bobide-server"},
 }
 
 func (f Flavor) DisplayName() string {
@@ -130,9 +139,9 @@ func (o *VsCodeServer) InstallExtensions() error {
 
 	for _, ext := range o.extensions {
 		if err := o.installExtension(binPath, ext, writer, errWriter); err != nil {
-			o.log.WithFields(logrus.Fields{"extension": ext, "error": err}).Warn("failed installing extension")
+			o.log.Warnf("failed installing extension: extension=%s, error=%v", ext, err)
 		} else {
-			o.log.WithFields(logrus.Fields{"extension": ext}).Info("installed extension")
+			o.log.Infof("installed extension: extension=%s", ext)
 		}
 	}
 
@@ -167,7 +176,8 @@ func (o *VsCodeServer) isAlreadyInstalled(settingsFile string) bool {
 }
 
 func (o *VsCodeServer) setupSettings(settingsFile string) error {
-	if err := os.MkdirAll(filepath.Dir(settingsFile), 0755); err != nil {
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+	if err := os.MkdirAll(filepath.Dir(settingsFile), 0o755); err != nil {
 		return err
 	}
 
@@ -178,7 +188,7 @@ func (o *VsCodeServer) setupSettings(settingsFile string) error {
 		settings = "{}"
 	}
 
-	return os.WriteFile(settingsFile, []byte(settings), 0600)
+	return os.WriteFile(settingsFile, []byte(settings), 0o600)
 }
 
 func (o *VsCodeServer) changeOwnership(location string) error {
@@ -189,7 +199,7 @@ func (o *VsCodeServer) changeOwnership(location string) error {
 }
 
 func (o *VsCodeServer) installExtension(binPath, extension string, stdout, stderr io.Writer) error {
-	o.log.WithFields(logrus.Fields{"extension": extension}).Info("installing extension")
+	o.log.Infof("installing extension: extension=%s", extension)
 
 	cmd := o.buildExtensionCommand(binPath, extension)
 	cmd.Stdout = stdout
@@ -200,13 +210,8 @@ func (o *VsCodeServer) installExtension(binPath, extension string, stdout, stder
 func (o *VsCodeServer) buildExtensionCommand(binPath, extension string) *exec.Cmd {
 	args := []string{"--install-extension", extension}
 
-	// VS Code stable/insiders use serve-local subcommand
-	if o.flavor == FlavorStable || o.flavor == FlavorInsiders {
-		args = append([]string{"serve-local", "--accept-server-license-terms"}, args...)
-	}
-
 	if o.userName != "" {
-		cmd := shellquote.Join(append([]string{binPath}, args...)...)
+		cmd := shellescape.QuoteCommand(append([]string{binPath}, args...))
 		return exec.Command("su", o.userName, "-c", cmd)
 	}
 	return exec.Command(binPath, args...)
@@ -222,17 +227,19 @@ func (o *VsCodeServer) findServerBinaryPath(location string) string {
 		name string
 		fn   func() string
 	}{
-		{"system PATH", func() string { return o.findInSystemPath(cfg.binName) }},
+		{"running process", func() string { return o.findRunningServer(cfg.binName) }},
 		{"install dir", func() string { return o.findInDir(location, cfg.binName) }},
+		{"system PATH", func() string { return o.findInSystemPath(cfg.binName) }},
 	}
 
 	for _, s := range searches {
 		if path := s.fn(); path != "" && o.validateBinary(path) {
-			o.log.WithFields(logrus.Fields{
-				"server":   cfg.serverDir,
-				"path":     path,
-				"location": s.name,
-			}).Info("found server binary")
+			o.log.Infof(
+				"found server binary: server=%s, path=%s, location=%s",
+				cfg.serverDir,
+				path,
+				s.name,
+			)
 			return path
 		}
 	}
@@ -251,7 +258,7 @@ func (o *VsCodeServer) waitForServerBinary(location string) string {
 		}
 
 		if attempts == 0 || attempts%10 == 0 {
-			o.log.WithFields(logrus.Fields{"attempts": attempts}).Debug("waiting for server installation")
+			o.log.Debugf("waiting for server installation: attempts=%d", attempts)
 		}
 
 		time.Sleep(backoff)
@@ -259,7 +266,7 @@ func (o *VsCodeServer) waitForServerBinary(location string) string {
 		attempts++
 	}
 
-	o.log.WithFields(logrus.Fields{"attempts": attempts}).Warn("timed out waiting for server")
+	o.log.Warnf("timed out waiting for server: attempts=%d", attempts)
 	return ""
 }
 
@@ -271,31 +278,142 @@ func (o *VsCodeServer) findInSystemPath(binName string) string {
 	return path
 }
 
+// findRunningServer looks for a running process whose command line contains
+// the server binary name, then extracts the executable path. It reads
+// /proc/*/cmdline directly to avoid a dependency on pgrep/procps.
+func (o *VsCodeServer) findRunningServer(binName string) string {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		o.log.Debugf("cannot read /proc, skipping process discovery: %v", err)
+		return ""
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() || !isNumeric(entry.Name()) {
+			continue
+		}
+
+		cmdline, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "cmdline"))
+		if err != nil {
+			continue
+		}
+
+		path := matchServerProcess(cmdline, binName)
+		if path != "" {
+			o.log.Debugf("found running server process (pid=%s, path=%s)", entry.Name(), path)
+			return path
+		}
+	}
+
+	return ""
+}
+
+// matchServerProcess checks whether a /proc cmdline (NUL-delimited) belongs
+// to a VS Code server process and returns the binary path if it does.
+func matchServerProcess(cmdline []byte, binName string) string {
+	if len(cmdline) == 0 {
+		return ""
+	}
+
+	args := bytes.Split(cmdline, []byte{0})
+	if len(args) == 0 {
+		return ""
+	}
+
+	// The server binary is a shell wrapper that starts node, so the cmdline
+	// typically looks like: /path/to/.../bin/code-server --host ...
+	// But it could also be invoked by sh: /bin/sh /path/to/code-server ...
+	for _, arg := range args {
+		s := string(arg)
+		if filepath.Base(s) == binName {
+			// Resolve to absolute path if possible
+			if abs, err := filepath.Abs(s); err == nil {
+				s = abs
+			}
+			return s
+		}
+	}
+
+	return ""
+}
+
+func isNumeric(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return len(s) > 0
+}
+
+// findInDir walks root looking for files named binName, collecting all
+// candidates. When multiple matches exist (e.g. several VS Code server
+// versions), it returns the one whose parent directory has the most recent
+// modification time, so that an auto-updated server is preferred over a
+// stale one.
 func (o *VsCodeServer) findInDir(root, binName string) string {
-	var found string
+	type candidate struct {
+		path    string
+		modTime time.Time
+	}
+	var candidates []candidate
+
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || found != "" {
+		if err != nil {
 			return filepath.SkipDir
 		}
 
-		depth := strings.Count(strings.TrimPrefix(path, root), string(filepath.Separator))
+		pathRelative := strings.TrimPrefix(path, root)
+		depth := strings.Count(pathRelative, string(filepath.Separator))
 		if depth > maxSearchDepth {
 			return filepath.SkipDir
 		}
 
+		// The VS Code server gets installed into a staging directory, which is
+		// later renamed. Do not consider the staging directory a valid
+		// destination, as it won't be valid by the time the server binary is
+		// called.
+		if d.IsDir() && strings.Contains(pathRelative, ".staging") {
+			return filepath.SkipDir
+		}
+
 		if !d.IsDir() && d.Name() == binName {
-			found = path
-			return filepath.SkipAll
+			dirInfo, err := os.Stat(filepath.Dir(path))
+			if err != nil {
+				return nil
+			}
+			candidates = append(candidates, candidate{path: path, modTime: dirInfo.ModTime()})
 		}
 
 		return nil
 	})
-	return found
+
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	// Return the candidate with the newest parent directory mtime.
+	best := candidates[0]
+	for _, c := range candidates[1:] {
+		if c.modTime.After(best.modTime) {
+			best = c
+		}
+	}
+
+	if len(candidates) > 1 {
+		o.log.Debugf(
+			"multiple server binaries found (count=%d), chose newest: %s",
+			len(candidates),
+			best.path,
+		)
+	}
+
+	return best.path
 }
 
 func (o *VsCodeServer) validateBinary(binPath string) bool {
 	if !o.isSafeBinary(binPath) {
-		o.log.WithFields(logrus.Fields{"path": binPath}).Warn("binary failed safety checks")
+		o.log.Warnf("binary failed safety checks: path=%s", binPath)
 		return false
 	}
 
@@ -315,7 +433,7 @@ func (o *VsCodeServer) isSafeBinary(binPath string) bool {
 		return false
 	}
 
-	if mode.Perm()&0002 != 0 {
+	if mode.Perm()&0o002 != 0 {
 		return false
 	}
 
@@ -335,7 +453,8 @@ func (o *VsCodeServer) prepareServerLocation(create bool) (string, error) {
 
 	folder := filepath.Join(homeFolder, cfg.serverDir)
 	if create {
-		if err := os.MkdirAll(folder, 0755); err != nil {
+		// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.MkdirAll(folder, 0o755); err != nil {
 			return "", err
 		}
 	}

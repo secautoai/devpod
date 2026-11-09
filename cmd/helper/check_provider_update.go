@@ -17,9 +17,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	errProviderNotFound = errors.New("provider not found")
-)
+var errProviderNotFound = errors.New("provider not found")
 
 type CheckProviderUpdateCmd struct {
 	*flags.GlobalFlags
@@ -31,7 +29,7 @@ type providerVersionCheck struct {
 	LatestVersion   string `json:"latestVersion,omitempty"`
 }
 
-// NewCheckProviderUpdateCmd creates a new command
+// NewCheckProviderUpdateCmd creates a new command.
 func NewCheckProviderUpdateCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &CheckProviderUpdateCmd{
 		GlobalFlags: flags,
@@ -40,19 +38,23 @@ func NewCheckProviderUpdateCmd(flags *flags.GlobalFlags) *cobra.Command {
 	shellCmd := &cobra.Command{
 		Use:   "check-provider-update",
 		Short: "Check if a provider update is available",
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
 			devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 			if err != nil {
 				return err
 			}
-			return cmd.Run(context.Background(), devPodConfig, args)
+			return cmd.Run(cobraCmd.Context(), devPodConfig, args)
 		},
 	}
 
 	return shellCmd
 }
 
-func (cmd *CheckProviderUpdateCmd) Run(ctx context.Context, devPodConfig *config.Config, args []string) error {
+func (cmd *CheckProviderUpdateCmd) Run(
+	ctx context.Context,
+	devPodConfig *config.Config,
+	args []string,
+) error {
 	if len(args) != 1 {
 		return fmt.Errorf("provider is missing")
 	}
@@ -77,11 +79,15 @@ func (cmd *CheckProviderUpdateCmd) Run(ctx context.Context, devPodConfig *config
 	if err != nil {
 		return err
 	}
-	currentProviderVersion, err := semver.Parse(strings.TrimPrefix(currentProvider.Config.Version, "v"))
+	currentProviderVersion, err := semver.Parse(
+		strings.TrimPrefix(currentProvider.Config.Version, "v"),
+	)
 	if err != nil {
 		return err
 	}
-	latestProviderVersion, err := semver.Parse(strings.TrimPrefix(latestProviderConfig.Version, "v"))
+	latestProviderVersion, err := semver.Parse(
+		strings.TrimPrefix(latestProviderConfig.Version, "v"),
+	)
 	if err != nil {
 		return err
 	}
@@ -101,7 +107,10 @@ func (cmd *CheckProviderUpdateCmd) Run(ctx context.Context, devPodConfig *config
 	return nil
 }
 
-func loadLatestProvider(providerSourceRaw string, log log.Logger) (*provider.ProviderConfig, error) {
+func loadLatestProvider(
+	providerSourceRaw string,
+	log log.Logger,
+) (*provider.ProviderConfig, error) {
 	providerRaw, _, err := workspace.ResolveProvider(providerSourceRaw, log)
 	if err != nil {
 		return nil, fmt.Errorf("resolve provider: %w", err)

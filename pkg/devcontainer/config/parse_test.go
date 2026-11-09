@@ -65,10 +65,12 @@ func TestFindDevContainerConfigs(t *testing.T) {
 
 	for _, cfg := range configs {
 		fullPath := filepath.Join(tmpDir, cfg)
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(fullPath, []byte(`{"name":"test"}`), 0644); err != nil {
+		// #nosec G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.WriteFile(fullPath, []byte(`{"name":"test"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -93,10 +95,12 @@ func TestListDevContainerIDs(t *testing.T) {
 
 	for cfg, content := range configs {
 		fullPath := filepath.Join(tmpDir, cfg)
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+		// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+		// #nosec G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -129,7 +133,8 @@ func TestParseDevContainerJSONWithSelector(t *testing.T) {
 	t.Run("explicit path", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, "custom.json")
-		if err := os.WriteFile(configPath, []byte(`{"name":"Custom"}`), 0644); err != nil {
+		// #nosec G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.WriteFile(configPath, []byte(`{"name":"Custom"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -153,10 +158,12 @@ func TestParseDevContainerJSONWithSelector(t *testing.T) {
 	t.Run(".devcontainer/devcontainer.json", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, ".devcontainer", "devcontainer.json")
-		if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(configPath, []byte(`{"name":"Standard"}`), 0644); err != nil {
+		// #nosec G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.WriteFile(configPath, []byte(`{"name":"Standard"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -172,7 +179,8 @@ func TestParseDevContainerJSONWithSelector(t *testing.T) {
 	t.Run(".devcontainer.json", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, ".devcontainer.json")
-		if err := os.WriteFile(configPath, []byte(`{"name":"Root"}`), 0644); err != nil {
+		// #nosec G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.WriteFile(configPath, []byte(`{"name":"Root"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -188,10 +196,12 @@ func TestParseDevContainerJSONWithSelector(t *testing.T) {
 	t.Run("single subfolder", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		configPath := filepath.Join(tmpDir, ".devcontainer/python/devcontainer.json")
-		if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(configPath, []byte(`{"name":"Python"}`), 0644); err != nil {
+		// #nosec G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.WriteFile(configPath, []byte(`{"name":"Python"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -209,27 +219,35 @@ func TestParseDevContainerJSONWithSelector(t *testing.T) {
 		pythonPath := filepath.Join(tmpDir, ".devcontainer/python/devcontainer.json")
 		nodePath := filepath.Join(tmpDir, ".devcontainer/node/devcontainer.json")
 
-		if err := os.MkdirAll(filepath.Dir(pythonPath), 0755); err != nil {
+		// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.MkdirAll(filepath.Dir(pythonPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.MkdirAll(filepath.Dir(nodePath), 0755); err != nil {
+		// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.MkdirAll(filepath.Dir(nodePath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(pythonPath, []byte(`{"name":"Python"}`), 0644); err != nil {
+		// #nosec G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.WriteFile(pythonPath, []byte(`{"name":"Python"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(nodePath, []byte(`{"name":"Node"}`), 0644); err != nil {
+		// #nosec G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.WriteFile(nodePath, []byte(`{"name":"Node"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
-		config, err := ParseDevContainerJSONWithSelector(tmpDir, "", func(matches []string) (string, error) {
-			for _, match := range matches {
-				if filepath.Base(filepath.Dir(match)) == "python" {
-					return match, nil
+		config, err := ParseDevContainerJSONWithSelector(
+			tmpDir,
+			"",
+			func(matches []string) (string, error) {
+				for _, match := range matches {
+					if filepath.Base(filepath.Dir(match)) == "python" {
+						return match, nil
+					}
 				}
-			}
-			return "", errors.New("not found")
-		})
+				return "", errors.New("not found")
+			},
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -243,16 +261,20 @@ func TestParseDevContainerJSONWithSelector(t *testing.T) {
 		pythonPath := filepath.Join(tmpDir, ".devcontainer/python/devcontainer.json")
 		nodePath := filepath.Join(tmpDir, ".devcontainer/node/devcontainer.json")
 
-		if err := os.MkdirAll(filepath.Dir(pythonPath), 0755); err != nil {
+		// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.MkdirAll(filepath.Dir(pythonPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.MkdirAll(filepath.Dir(nodePath), 0755); err != nil {
+		// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.MkdirAll(filepath.Dir(nodePath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(pythonPath, []byte(`{"name":"Python"}`), 0644); err != nil {
+		// #nosec G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.WriteFile(pythonPath, []byte(`{"name":"Python"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(nodePath, []byte(`{"name":"Node"}`), 0644); err != nil {
+		// #nosec G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.WriteFile(nodePath, []byte(`{"name":"Node"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -269,22 +291,30 @@ func TestParseDevContainerJSONWithSelector(t *testing.T) {
 		tmpDir := t.TempDir()
 		pythonPath := filepath.Join(tmpDir, ".devcontainer/python/devcontainer.json")
 		nodePath := filepath.Join(tmpDir, ".devcontainer/node/devcontainer.json")
-		if err := os.MkdirAll(filepath.Dir(pythonPath), 0755); err != nil {
+		// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.MkdirAll(filepath.Dir(pythonPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.MkdirAll(filepath.Dir(nodePath), 0755); err != nil {
+		// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.MkdirAll(filepath.Dir(nodePath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(pythonPath, []byte(`{"name":"Python"}`), 0644); err != nil {
+		// #nosec G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.WriteFile(pythonPath, []byte(`{"name":"Python"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(nodePath, []byte(`{"name":"Node"}`), 0644); err != nil {
+		// #nosec G306 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err := os.WriteFile(nodePath, []byte(`{"name":"Node"}`), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
-		_, err := ParseDevContainerJSONWithSelector(tmpDir, "", func(matches []string) (string, error) {
-			return "", errors.New("selector failed")
-		})
+		_, err := ParseDevContainerJSONWithSelector(
+			tmpDir,
+			"",
+			func(matches []string) (string, error) {
+				return "", errors.New("selector failed")
+			},
+		)
 		if err == nil || err.Error() != "selector failed" {
 			t.Errorf("expected selector error, got %v", err)
 		}

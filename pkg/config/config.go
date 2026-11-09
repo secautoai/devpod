@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ghodss/yaml"
 	"github.com/skevetter/devpod/pkg/types"
+	"sigs.k8s.io/yaml"
 )
 
 type Config struct {
@@ -285,12 +285,12 @@ func SaveConfig(config *Config) error {
 		return err
 	}
 
-	err = os.MkdirAll(filepath.Dir(configOrigin), 0700)
+	err = os.MkdirAll(filepath.Dir(configOrigin), 0o700)
 	if err != nil {
 		return err
 	}
 
-	err = os.WriteFile(configOrigin, out, 0600)
+	err = os.WriteFile(configOrigin, out, 0o600)
 	if err != nil {
 		return err
 	}

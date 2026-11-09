@@ -92,7 +92,7 @@ func CleanString(input string) string {
 	return strings.ReplaceAll(input, "/", "")
 }
 
-// createTempDir creates a temporary directory based on environment and base directory
+// createTempDir creates a temporary directory based on environment and base directory.
 func createTempDir(baseDir string) (string, error) {
 	var dir string
 	var err error
@@ -172,7 +172,8 @@ func copyFile(src, dst string) error {
 	}
 	mode := info.Mode().Perm()
 
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
 

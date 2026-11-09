@@ -10,16 +10,14 @@ import (
 	"github.com/skevetter/devpod/cmd/pro/provider/list"
 	"github.com/skevetter/devpod/cmd/pro/provider/update"
 	"github.com/skevetter/devpod/cmd/pro/provider/watch"
-	"github.com/skevetter/devpod/pkg/client/clientimplementation"
+	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/platform"
 	"github.com/skevetter/devpod/pkg/platform/client"
-	"github.com/skevetter/devpod/pkg/telemetry"
 	"github.com/skevetter/log"
-
 	"github.com/spf13/cobra"
 )
 
-// NewProProviderCmd creates a new cobra command
+// NewProProviderCmd creates a new cobra command.
 func NewProProviderCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	c := &cobra.Command{
 		Use:    "provider",
@@ -27,26 +25,27 @@ func NewProProviderCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 		Args:   cobra.NoArgs,
 		Hidden: true,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
-			if (globalFlags.Config == "" || globalFlags.Config == client.DefaultCacheConfig) && os.Getenv("LOFT_CONFIG") != "" {
+			if (globalFlags.Config == "" || globalFlags.Config == client.DefaultCacheConfig) &&
+				os.Getenv("LOFT_CONFIG") != "" {
 				globalFlags.Config = os.Getenv(platform.ConfigEnv)
 			}
 
 			log.Default.SetFormat(log.JSONFormat)
 
-			if os.Getenv(clientimplementation.DevPodDebug) == "true" {
+			if os.Getenv(config.EnvDebug) == config.BoolTrue {
 				globalFlags.Debug = true
 			}
 
 			// Disable debug hints if we execute pro commands from DevPod Desktop
 			// We're reusing the agent.AgentExecutedAnnotation for simplicity, could rename in the future
-			if os.Getenv(telemetry.UIEnvVar) == "true" {
+			if os.Getenv(config.EnvUI) == config.BoolTrue {
 				cmd.VisitParents(func(c *cobra.Command) {
 					// find the root command
-					if c.Name() == "devpod" {
+					if c.Name() == config.BinaryName {
 						if c.Annotations == nil {
 							c.Annotations = map[string]string{}
 						}
-						c.Annotations[agent.AgentExecutedAnnotation] = "true"
+						c.Annotations[agent.AgentExecutedAnnotation] = config.BoolTrue
 					}
 				})
 			}

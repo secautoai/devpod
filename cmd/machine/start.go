@@ -4,19 +4,18 @@ import (
 	"context"
 
 	"github.com/skevetter/devpod/cmd/flags"
-	"github.com/skevetter/devpod/pkg/client"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/workspace"
 	"github.com/skevetter/log"
 	"github.com/spf13/cobra"
 )
 
-// StartCmd holds the configuration
+// StartCmd holds the configuration.
 type StartCmd struct {
 	*flags.GlobalFlags
 }
 
-// NewStartCmd creates a new destroy command
+// NewStartCmd creates a new start command.
 func NewStartCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &StartCmd{
 		GlobalFlags: flags,
@@ -24,15 +23,15 @@ func NewStartCmd(flags *flags.GlobalFlags) *cobra.Command {
 	startCmd := &cobra.Command{
 		Use:   "start [name]",
 		Short: "Starts an existing machine",
-		RunE: func(_ *cobra.Command, args []string) error {
-			return cmd.Run(context.Background(), args)
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			return cmd.Run(cobraCmd.Context(), args)
 		},
 	}
 
 	return startCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *StartCmd) Run(ctx context.Context, args []string) error {
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
@@ -44,7 +43,7 @@ func (cmd *StartCmd) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	err = machineClient.Start(ctx, client.StartOptions{})
+	err = machineClient.Start(ctx)
 	if err != nil {
 		return err
 	}

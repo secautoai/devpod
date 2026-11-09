@@ -11,19 +11,18 @@ import (
 	"github.com/skevetter/devpod/cmd/flags"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/provider"
-	"github.com/skevetter/log"
-	"github.com/skevetter/log/table"
+	"github.com/skevetter/devpod/pkg/table"
 	"github.com/spf13/cobra"
 )
 
-// ListCmd holds the configuration
+// ListCmd holds the configuration.
 type ListCmd struct {
 	*flags.GlobalFlags
 
 	Output string
 }
 
-// NewListCmd creates a new destroy command
+// NewListCmd creates a new list command.
 func NewListCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &ListCmd{
 		GlobalFlags: flags,
@@ -32,16 +31,17 @@ func NewListCmd(flags *flags.GlobalFlags) *cobra.Command {
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "Lists existing machines",
-		RunE: func(_ *cobra.Command, args []string) error {
-			return cmd.Run(context.Background())
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			return cmd.Run(cobraCmd.Context())
 		},
 	}
 
-	listCmd.Flags().StringVar(&cmd.Output, "output", "plain", "The output format to use. Can be json or plain")
+	listCmd.Flags().
+		StringVar(&cmd.Output, "output", "plain", "The output format to use. Can be json or plain")
 	return listCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *ListCmd) Run(ctx context.Context) error {
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
@@ -62,7 +62,10 @@ func (cmd *ListCmd) Run(ctx context.Context) error {
 	case "plain":
 		tableEntries := [][]string{}
 		for _, entry := range entries {
-			machineConfig, err := provider.LoadMachineConfig(devPodConfig.DefaultContext, entry.Name())
+			machineConfig, err := provider.LoadMachineConfig(
+				devPodConfig.DefaultContext,
+				entry.Name(),
+			)
 			if err != nil {
 				return fmt.Errorf("load machine config: %w", err)
 			}
@@ -77,7 +80,7 @@ func (cmd *ListCmd) Run(ctx context.Context) error {
 			return tableEntries[i][0] < tableEntries[j][0]
 		})
 
-		table.PrintTable(log.Default, []string{
+		table.Print([]string{
 			"Name",
 			"Provider",
 			"Age",
@@ -85,7 +88,10 @@ func (cmd *ListCmd) Run(ctx context.Context) error {
 	case "json":
 		tableEntries := []*provider.Machine{}
 		for _, entry := range entries {
-			machineConfig, err := provider.LoadMachineConfig(devPodConfig.DefaultContext, entry.Name())
+			machineConfig, err := provider.LoadMachineConfig(
+				devPodConfig.DefaultContext,
+				entry.Name(),
+			)
 			if err != nil {
 				return fmt.Errorf("load machine config: %w", err)
 			}
@@ -101,7 +107,10 @@ func (cmd *ListCmd) Run(ctx context.Context) error {
 		}
 		fmt.Print(string(out))
 	default:
-		return fmt.Errorf("unexpected output format, choose either json or plain. Got %s", cmd.Output)
+		return fmt.Errorf(
+			"unexpected output format, choose either json or plain. Got %s",
+			cmd.Output,
+		)
 	}
 
 	return nil

@@ -26,9 +26,10 @@ type GitSSHSignatureHelperCmd struct {
 //
 //	git-ssh-signature-helper [signing-key-path]
 //
-// The signing key path is a required argument for this command. It should be what equal to what you would have set as user.signingkey git config.
+// The signing key path is a required argument for this command. It should be what equal to what you
+// would have set as user.signingkey git config.
 func NewGitSSHSignatureHelperCmd(flags *flags.GlobalFlags) *cobra.Command {
-	cmd := &GitSSHSignatureCmd{
+	cmd := &GitSSHSignatureHelperCmd{
 		GlobalFlags: flags,
 	}
 

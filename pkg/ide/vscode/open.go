@@ -10,8 +10,9 @@ import (
 	"strings"
 
 	"github.com/skevetter/devpod/pkg/command"
+	pkgconfig "github.com/skevetter/devpod/pkg/config"
+	devpodopen "github.com/skevetter/devpod/pkg/open"
 	"github.com/skevetter/log"
-	"github.com/skratchdot/open-golang/open"
 )
 
 const containersExtension = "ms-vscode-remote.remote-containers"
@@ -74,6 +75,12 @@ var openConfigs = map[Flavor]openConfig{
 		macAppPath:   "/Applications/Antigravity.app/Contents/Resources/app/bin/agy",
 		sshExtension: "ms-vscode-remote.remote-ssh",
 	},
+	FlavorBob: {
+		scheme:       "bob",
+		cliName:      "bobide",
+		macAppPath:   "/Applications/Bobide.app/Contents/Resources/app/bin/bobide",
+		sshExtension: "jeanp413.open-remote-ssh",
+	},
 }
 
 func Open(ctx context.Context, params OpenParams) error {
@@ -103,7 +110,7 @@ func openViaBrowser(params OpenParams) error {
 	}
 
 	folder := strings.TrimPrefix(params.Folder, "/")
-	pathStr := fmt.Sprintf("/ssh-remote+%s.devpod/%s", params.Workspace, folder)
+	pathStr := fmt.Sprintf("/ssh-remote+%s"+pkgconfig.SSHHostSuffix+"/%s", params.Workspace, folder)
 	u := &url.URL{
 		Scheme: config.scheme,
 		Host:   "vscode-remote",
@@ -117,9 +124,13 @@ func openViaBrowser(params OpenParams) error {
 	openURL := u.String()
 
 	params.Log.Debugf("opening URL %s", openURL)
-	err := open.Run(openURL)
+	err := devpodopen.Run(openURL)
 	if err != nil {
-		params.Log.Errorf("flavor %s is not installed on host device: %v", params.Flavor.DisplayName(), err)
+		params.Log.Errorf(
+			"flavor %s is not installed on host device: %v",
+			params.Flavor.DisplayName(),
+			err,
+		)
 		return err
 	}
 
@@ -137,7 +148,11 @@ func openViaCLI(ctx context.Context, params OpenParams) error {
 		return fmt.Errorf("flavor %s binary is not found", params.Flavor)
 	}
 
-	hasSSHExtension, hasContainersExtension, err := listInstalledExtensions(ctx, cliPath, config.sshExtension)
+	hasSSHExtension, hasContainersExtension, err := listInstalledExtensions(
+		ctx,
+		cliPath,
+		config.sshExtension,
+	)
 	if err != nil {
 		return err
 	}
@@ -149,7 +164,12 @@ func openViaCLI(ctx context.Context, params OpenParams) error {
 	}
 
 	args := buildOpenArgs(params.Workspace, params.Folder, params.NewWindow, hasContainersExtension)
-	params.Log.Debugf("flavor %s command %s %s", params.Flavor.DisplayName(), cliPath, strings.Join(args, " "))
+	params.Log.Debugf(
+		"flavor %s command %s %s",
+		params.Flavor.DisplayName(),
+		cliPath,
+		strings.Join(args, " "),
+	)
 	out, err := exec.CommandContext(ctx, cliPath, args...).CombinedOutput()
 	if err != nil {
 		return command.WrapCommandError(out, err)
@@ -158,7 +178,10 @@ func openViaCLI(ctx context.Context, params OpenParams) error {
 	return nil
 }
 
-func listInstalledExtensions(ctx context.Context, cliPath, sshExtension string) (hasSSH, hasContainers bool, err error) {
+func listInstalledExtensions(
+	ctx context.Context,
+	cliPath, sshExtension string,
+) (hasSSH, hasContainers bool, err error) {
 	out, err := exec.CommandContext(ctx, cliPath, "--list-extensions").CombinedOutput()
 	if err != nil {
 		return false, false, command.WrapCommandError(out, err)
@@ -206,7 +229,7 @@ func buildOpenArgs(workspace, folder string, newWindow, hasContainersExtension b
 
 	u := &url.URL{
 		Scheme: "vscode-remote",
-		Host:   "ssh-remote+" + workspace + ".devpod",
+		Host:   "ssh-remote+" + workspace + pkgconfig.SSHHostSuffix,
 		Path:   strings.TrimPrefix(folder, "/"),
 	}
 	folderURI := u.String()

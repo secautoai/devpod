@@ -8,13 +8,12 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/skevetter/devpod/pkg/config"
 	provider2 "github.com/skevetter/devpod/pkg/provider"
 	"github.com/skevetter/log"
 )
 
-var (
-	craneSigningKey string
-)
+var craneSigningKey string
 
 const (
 	PullCommand    = "pull"
@@ -22,9 +21,9 @@ const (
 
 	EnvironmentCrane = "environment"
 
-	defaultBinName     = "devpod-crane"
-	envDevPodCraneName = "DEVPOD_CRANE_NAME"
-	tmpDirTemplate     = "devpod-crane-*"
+	defaultBinName     = config.BinaryName + "-crane"
+	envDevPodCraneName = config.EnvCraneName
+	tmpDirTemplate     = config.BinaryName + "-crane-*"
 )
 
 type Content struct {
@@ -65,19 +64,23 @@ func (c *command) Run() (string, error) {
 	return outBuf.String(), nil
 }
 
-// ShouldUse takes CLIOptions and returns true if crane should be used
+// ShouldUse takes CLIOptions and returns true if crane should be used.
 func ShouldUse(cliOptions *provider2.CLIOptions) bool {
 	return IsAvailable() && cliOptions.Platform.EnvironmentTemplate != ""
 }
 
-// IsAvailable checks if devpod crane is installed in host system
+// IsAvailable checks if devpod crane is installed in host system.
 func IsAvailable() bool {
 	_, err := exec.LookPath(getBinName())
 	return err == nil
 }
 
-// PullConfigFromSource pulls devcontainer config from configSource using git crane and returns config path
-func PullConfigFromSource(workspaceInfo *provider2.AgentWorkspaceInfo, options *provider2.CLIOptions, log log.Logger) (string, error) {
+// PullConfigFromSource pulls devcontainer config from configSource using git crane and returns config path.
+func PullConfigFromSource(
+	workspaceInfo *provider2.AgentWorkspaceInfo,
+	options *provider2.CLIOptions,
+	log log.Logger,
+) (string, error) {
 	var data string
 	var err error
 	if options.Platform.EnvironmentTemplate == "" {
@@ -112,7 +115,11 @@ func PullConfigFromSource(workspaceInfo *provider2.AgentWorkspaceInfo, options *
 	return writeContentToDirectory(workspaceInfo, content, log)
 }
 
-func writeContentToDirectory(workspaceInfo *provider2.AgentWorkspaceInfo, content *Content, _ log.Logger) (string, error) {
+func writeContentToDirectory(
+	workspaceInfo *provider2.AgentWorkspaceInfo,
+	content *Content,
+	_ log.Logger,
+) (string, error) {
 	path := workspaceInfo.ContentFolder
 	if path == "" {
 		path = createContentDirectory()

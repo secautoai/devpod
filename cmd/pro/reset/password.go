@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	storagev1 "github.com/loft-sh/api/v4/pkg/apis/storage/v1"
-	"github.com/sirupsen/logrus"
+	storagev1 "github.com/skevetter/api/pkg/apis/storage/v1"
 	"github.com/skevetter/devpod/cmd/pro/flags"
 	"github.com/skevetter/devpod/pkg/platform/kube"
 	"github.com/skevetter/devpod/pkg/random"
@@ -20,7 +19,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-// PasswordCmd holds the lags
+// PasswordCmd holds the flags.
 type PasswordCmd struct {
 	*flags.GlobalFlags
 
@@ -32,7 +31,7 @@ type PasswordCmd struct {
 	Log log.Logger
 }
 
-// NewPasswordCmd creates a new command
+// NewPasswordCmd creates a new command.
 func NewPasswordCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &PasswordCmd{
 		GlobalFlags: globalFlags,
@@ -52,7 +51,7 @@ devpod pro reset password --user admin
 		Long:  description,
 		Args:  cobra.NoArgs,
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
-			return cmd.Run()
+			return cmd.Run(cobraCmd.Context())
 		},
 	}
 
@@ -63,8 +62,8 @@ devpod pro reset password --user admin
 	return c
 }
 
-// Run executes the functionality
-func (cmd *PasswordCmd) Run() error {
+// Run executes the functionality.
+func (cmd *PasswordCmd) Run(ctx context.Context) error {
 	restConfig, err := ctrl.GetConfig()
 	if err != nil {
 		return fmt.Errorf("get kube config: %w", err)
@@ -75,108 +74,216 @@ func (cmd *PasswordCmd) Run() error {
 		return err
 	}
 
-	// get user
 	cmd.Log.Infof("Resetting password of user %s", cmd.User)
-	user, err := managementClient.Loft().StorageV1().Users().Get(context.Background(), cmd.User, metav1.GetOptions{})
-	if err != nil && !kerrors.IsNotFound(err) {
-		return fmt.Errorf("get user: %w", err)
-	} else if kerrors.IsNotFound(err) {
-		// create user
-		if !cmd.Create {
-			return fmt.Errorf("user %s was not found, run with '--create' to create this user automatically", cmd.User)
-		}
-
-		user, err = managementClient.Loft().StorageV1().Users().Create(context.Background(), &storagev1.User{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: cmd.User,
-			},
-			Spec: storagev1.UserSpec{
-				Username: cmd.User,
-				Subject:  cmd.User,
-				Groups: []string{
-					"system:masters",
-				},
-				PasswordRef: &storagev1.SecretRef{
-					SecretName:      "loft-password-" + random.String(5),
-					SecretNamespace: "loft",
-					Key:             "password",
-				},
-			},
-		}, metav1.CreateOptions{})
-		if err != nil {
-			return err
-		}
-	}
-
-	// check if user had a password before
-	if user.Spec.PasswordRef == nil || user.Spec.PasswordRef.SecretName == "" || user.Spec.PasswordRef.SecretNamespace == "" || user.Spec.PasswordRef.Key == "" {
-		if !cmd.Force {
-			return fmt.Errorf("user %s had no password. If you want to force password creation, please run with the '--force' flag", cmd.User)
-		}
-
-		user.Spec.PasswordRef = &storagev1.SecretRef{
-			SecretName:      "loft-password-" + random.String(5),
-			SecretNamespace: "loft",
-			Key:             "password",
-		}
-		user, err = managementClient.Loft().StorageV1().Users().Update(context.Background(), user, metav1.UpdateOptions{})
-		if err != nil {
-			return fmt.Errorf("update user: %w", err)
-		}
-	}
-
-	// now ask user for new password
-	password := cmd.Password
-	if password == "" {
-		for {
-			password, err = cmd.Log.Question(&survey.QuestionOptions{
-				Question:   "Please enter a new password",
-				IsPassword: true,
-			})
-			password = strings.TrimSpace(password)
-			if err != nil {
-				return err
-			} else if password == "" {
-				cmd.Log.Error("Please enter a password")
-				continue
-			}
-
-			break
-		}
-	}
-	passwordHash := fmt.Appendf(nil, "%x", sha256.Sum256([]byte(password)))
-
-	// check if secret exists
-	passwordSecret, err := managementClient.CoreV1().Secrets(user.Spec.PasswordRef.SecretNamespace).Get(context.Background(), user.Spec.PasswordRef.SecretName, metav1.GetOptions{})
-	if err != nil && !kerrors.IsNotFound(err) {
+	user, err := cmd.resolveUser(ctx, managementClient)
+	if err != nil {
 		return err
+	}
+
+	// Compute desired PasswordRef in-memory (no API call)
+	refChanged, err := cmd.ensurePasswordRef(user)
+	if err != nil {
+		return err
+	}
+
+	password, err := cmd.resolvePassword()
+	if err != nil {
+		return err
+	}
+
+	// Write secret before persisting the user's PasswordRef
+	passwordHash := fmt.Appendf(nil, "%x", sha256.Sum256([]byte(password)))
+	if err := cmd.upsertPasswordSecret(ctx, managementClient, user, passwordHash); err != nil {
+		return err
+	}
+
+	// Now persist the user's PasswordRef if it was changed
+	if err := cmd.persistPasswordRef(ctx, managementClient, user, refChanged); err != nil {
+		return err
+	}
+
+	cmd.Log.Done("reset user password")
+	return nil
+}
+
+func (cmd *PasswordCmd) resolveUser(
+	ctx context.Context,
+	managementClient kube.Interface,
+) (*storagev1.User, error) {
+	user, err := managementClient.Loft().
+		StorageV1().
+		Users().
+		Get(ctx, cmd.User, metav1.GetOptions{})
+	if err != nil && !kerrors.IsNotFound(err) {
+		return nil, fmt.Errorf("get user: %w", err)
 	} else if kerrors.IsNotFound(err) {
-		_, err = managementClient.CoreV1().Secrets(user.Spec.PasswordRef.SecretNamespace).Create(context.Background(), &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      user.Spec.PasswordRef.SecretName,
-				Namespace: user.Spec.PasswordRef.SecretNamespace,
-			},
-			Data: map[string][]byte{
-				user.Spec.PasswordRef.Key: passwordHash,
-			},
-		}, metav1.CreateOptions{})
+		if !cmd.Create {
+			return nil, fmt.Errorf(
+				"user %s was not found, run with '--create' to create this user automatically",
+				cmd.User,
+			)
+		}
+
+		user, err = managementClient.Loft().
+			StorageV1().
+			Users().
+			Create(ctx, &storagev1.User{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: cmd.User,
+				},
+				Spec: storagev1.UserSpec{
+					Username: cmd.User,
+					Subject:  cmd.User,
+					Groups: []string{
+						"system:masters",
+					},
+				},
+			}, metav1.CreateOptions{})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return user, nil
+}
+
+// persistPasswordRef updates the user resource if the PasswordRef was changed.
+func (cmd *PasswordCmd) persistPasswordRef(
+	ctx context.Context,
+	managementClient kube.Interface,
+	user *storagev1.User,
+	changed bool,
+) error {
+	if !changed {
+		return nil
+	}
+	_, err := managementClient.Loft().
+		StorageV1().
+		Users().
+		Update(ctx, user, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("update user: %w", err)
+	}
+	return nil
+}
+
+func (cmd *PasswordCmd) ensurePasswordRef(user *storagev1.User) (bool, error) {
+	if hasCompletePasswordRef(user) {
+		return false, nil
+	}
+
+	if err := cmd.fillPasswordRef(user); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+func hasCompletePasswordRef(user *storagev1.User) bool {
+	ref := user.Spec.PasswordRef
+	return ref != nil && ref.SecretName != "" && ref.SecretNamespace != "" && ref.Key != ""
+}
+
+func (cmd *PasswordCmd) fillPasswordRef(user *storagev1.User) error {
+	ref := user.Spec.PasswordRef
+	// If PasswordRef exists with name and namespace but missing key, just default the key
+	if ref != nil && ref.SecretName != "" && ref.SecretNamespace != "" {
+		ref.Key = "password"
+		return nil
+	}
+
+	if !cmd.Force {
+		return fmt.Errorf(
+			"user %s had no password. If you want to force password creation, please run with the '--force' flag",
+			cmd.User,
+		)
+	}
+
+	user.Spec.PasswordRef = defaultPasswordRef(user.Spec.PasswordRef)
+	return nil
+}
+
+func defaultPasswordRef(ref *storagev1.SecretRef) *storagev1.SecretRef {
+	if ref == nil {
+		ref = &storagev1.SecretRef{}
+	}
+	if ref.SecretName == "" {
+		ref.SecretName = "loft-password-" + random.String(5)
+	}
+	if ref.SecretNamespace == "" {
+		ref.SecretNamespace = "loft"
+	}
+	if ref.Key == "" {
+		ref.Key = "password"
+	}
+	return ref
+}
+
+func (cmd *PasswordCmd) resolvePassword() (string, error) {
+	if cmd.Password != "" {
+		return cmd.Password, nil
+	}
+
+	for {
+		password, err := cmd.Log.Question(&survey.QuestionOptions{
+			Question:   "Please enter a new password",
+			IsPassword: true,
+		})
+		if err != nil {
+			return "", err
+		}
+
+		password = strings.TrimSpace(password)
+		if password != "" {
+			return password, nil
+		}
+
+		cmd.Log.Error("Please enter a password")
+	}
+}
+
+func (cmd *PasswordCmd) upsertPasswordSecret(
+	ctx context.Context,
+	managementClient kube.Interface,
+	user *storagev1.User,
+	passwordHash []byte,
+) error {
+	ref := user.Spec.PasswordRef
+	passwordSecret, err := managementClient.CoreV1().
+		Secrets(ref.SecretNamespace).
+		Get(ctx, ref.SecretName, metav1.GetOptions{})
+	if err != nil && !kerrors.IsNotFound(err) {
+		return fmt.Errorf("get password secret: %w", err)
+	}
+
+	if kerrors.IsNotFound(err) {
+		_, err = managementClient.CoreV1().
+			Secrets(ref.SecretNamespace).
+			Create(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      ref.SecretName,
+					Namespace: ref.SecretNamespace,
+				},
+				Data: map[string][]byte{
+					ref.Key: passwordHash,
+				},
+			}, metav1.CreateOptions{})
 		if err != nil {
 			return fmt.Errorf("create password secret: %w", err)
 		}
-	} else {
-		if passwordSecret.Data == nil {
-			passwordSecret.Data = map[string][]byte{}
-		}
-		passwordSecret.Data[user.Spec.PasswordRef.Key] = passwordHash
-		_, err = managementClient.CoreV1().Secrets(user.Spec.PasswordRef.SecretNamespace).Update(context.Background(), passwordSecret, metav1.UpdateOptions{})
-		if err != nil {
-			return fmt.Errorf("update password secret: %w", err)
-		}
+		return nil
 	}
 
-	cmd.Log.WithFields(logrus.Fields{
-		"user": cmd.User,
-	})
-	cmd.Log.Done("reset user password")
+	if passwordSecret.Data == nil {
+		passwordSecret.Data = map[string][]byte{}
+	}
+	passwordSecret.Data[ref.Key] = passwordHash
+	_, err = managementClient.CoreV1().
+		Secrets(ref.SecretNamespace).
+		Update(ctx, passwordSecret, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("update password secret: %w", err)
+	}
+
 	return nil
 }

@@ -74,7 +74,11 @@ func (r *runner) Build(ctx context.Context, options provider.BuildOptions) (stri
 	}
 
 	if isDockerComposeConfig(substitutedConfig.Config) {
-		if err := dockerDriver.TagDevContainer(ctx, buildInfo.ImageName, prebuildImage); err != nil {
+		if err := dockerDriver.TagDevContainer(
+			ctx,
+			buildInfo.ImageName,
+			prebuildImage,
+		); err != nil {
 			return "", fmt.Errorf("tag image: %w", err)
 		}
 	}
@@ -85,7 +89,7 @@ func (r *runner) Build(ctx context.Context, options provider.BuildOptions) (stri
 	}
 
 	// check if we can push image
-	if err := image.CheckPushPermissions(prebuildImage); err != nil {
+	if err := image.CheckPushPermissions(ctx, prebuildImage); err != nil {
 		return "", fmt.Errorf(
 			"cannot push to repository %s. Please make sure you are logged into the registry and credentials are available. (Error: %w)",
 			prebuildImage,

@@ -14,12 +14,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// LogsDaemonCmd holds the configuration
+// LogsDaemonCmd holds the configuration.
 type LogsDaemonCmd struct {
 	*flags.GlobalFlags
 }
 
-// NewLogsDaemonCmd creates a new destroy command
+// NewLogsDaemonCmd creates a new destroy command.
 func NewLogsDaemonCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &LogsDaemonCmd{
 		GlobalFlags: flags,
@@ -27,26 +27,33 @@ func NewLogsDaemonCmd(flags *flags.GlobalFlags) *cobra.Command {
 	startCmd := &cobra.Command{
 		Use:   "logs-daemon",
 		Short: "Prints the daemon logs on the machine",
-		RunE: func(_ *cobra.Command, args []string) error {
-			return cmd.Run(context.Background(), args)
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			return cmd.Run(cobraCmd.Context(), args)
 		},
 	}
 
 	return startCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *LogsDaemonCmd) Run(ctx context.Context, args []string) error {
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
 		return err
 	}
 
-	baseClient, err := workspace.Get(ctx, devPodConfig, args, false, cmd.Owner, false, log.Default)
+	baseClient, err := workspace.Get(ctx, workspace.GetOptions{
+		DevPodConfig: devPodConfig,
+		Args:         args,
+		Owner:        cmd.Owner,
+		Log:          log.Default,
+	})
 	if err != nil {
 		return err
 	} else if baseClient.WorkspaceConfig().Machine.ID == "" {
-		return fmt.Errorf("selected workspace is not a machine provider, there is not daemon running")
+		return fmt.Errorf(
+			"selected workspace is not a machine provider, there is not daemon running",
+		)
 	}
 
 	workspaceClient, ok := baseClient.(client.WorkspaceClient)
@@ -59,7 +66,12 @@ func (cmd *LogsDaemonCmd) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	command := fmt.Sprintf("'%s' agent workspace logs-daemon --context '%s' --id '%s'", workspaceClient.AgentPath(), workspaceClient.Context(), workspaceClient.Workspace())
+	command := fmt.Sprintf(
+		"'%s' agent workspace logs-daemon --context '%s' --id '%s'",
+		workspaceClient.AgentPath(),
+		workspaceClient.Context(),
+		workspaceClient.Workspace(),
+	)
 	if agentInfo.Agent.DataPath != "" {
 		command += fmt.Sprintf(" --agent-dir '%s'", agentInfo.Agent.DataPath)
 	}

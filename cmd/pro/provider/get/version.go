@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// VersionCmd holds the cmd flags
+// VersionCmd holds the cmd flags.
 type VersionCmd struct {
 	*flags.GlobalFlags
 
@@ -34,7 +34,7 @@ type VersionInfo struct {
 	CurrentProviderVersion string `json:"currentProviderVersion,omitempty"`
 }
 
-// NewVersionCmd creates a new command
+// NewVersionCmd creates a new command.
 func NewVersionCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &VersionCmd{
 		GlobalFlags: globalFlags,
@@ -52,19 +52,24 @@ func NewVersionCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	return c
 }
 
-func (cmd *VersionCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func (cmd *VersionCmd) Run(
+	ctx context.Context,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	baseClient, err := client.InitClientFromPath(ctx, cmd.Config)
 	if err != nil {
 		return err
 	}
 
-	providerContext := os.Getenv(provider.PROVIDER_CONTEXT)
+	providerContext := os.Getenv(config.EnvProviderContext)
 	if providerContext == "" {
 		providerContext = config.DefaultContext
 	}
-	providerID := os.Getenv(provider.PROVIDER_ID)
+	providerID := os.Getenv(config.EnvProviderID)
 	if providerID == "" {
-		return fmt.Errorf("provider ID %s not defined", providerID)
+		return fmt.Errorf("provider ID env var %s not defined", config.EnvProviderID)
 	}
 
 	// get our own version

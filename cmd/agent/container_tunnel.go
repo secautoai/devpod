@@ -11,16 +11,16 @@ import (
 	"github.com/skevetter/devpod/cmd/agent/workspace"
 	"github.com/skevetter/devpod/cmd/flags"
 	"github.com/skevetter/devpod/pkg/agent"
+	pkgconfig "github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/devcontainer"
 	"github.com/skevetter/devpod/pkg/devcontainer/config"
-	"github.com/skevetter/devpod/pkg/devcontainer/setup"
 	"github.com/skevetter/devpod/pkg/encoding"
 	provider2 "github.com/skevetter/devpod/pkg/provider"
 	"github.com/skevetter/log"
 	"github.com/spf13/cobra"
 )
 
-// ContainerTunnelCmd holds the ws-tunnel cmd flags
+// ContainerTunnelCmd holds the ws-tunnel cmd flags.
 type ContainerTunnelCmd struct {
 	*flags.GlobalFlags
 
@@ -28,7 +28,7 @@ type ContainerTunnelCmd struct {
 	User          string
 }
 
-// NewContainerTunnelCmd creates a new command
+// NewContainerTunnelCmd creates a new command.
 func NewContainerTunnelCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &ContainerTunnelCmd{
 		GlobalFlags: flags,
@@ -37,18 +37,20 @@ func NewContainerTunnelCmd(flags *flags.GlobalFlags) *cobra.Command {
 		Use:   "container-tunnel",
 		Short: "Starts a new container ssh tunnel",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return cmd.Run(context.TODO(), log.Default.ErrorStreamOnly())
+		RunE: func(cobraCmd *cobra.Command, _ []string) error {
+			return cmd.Run(cobraCmd.Context(), log.Default.ErrorStreamOnly())
 		},
 	}
 
-	containerTunnelCmd.Flags().StringVar(&cmd.User, "user", "", "The user to create the tunnel with")
-	containerTunnelCmd.Flags().StringVar(&cmd.WorkspaceInfo, "workspace-info", "", "The workspace info")
+	containerTunnelCmd.Flags().
+		StringVar(&cmd.User, "user", "", "The user to create the tunnel with")
+	containerTunnelCmd.Flags().
+		StringVar(&cmd.WorkspaceInfo, "workspace-info", "", "The workspace info")
 	_ = containerTunnelCmd.MarkFlagRequired("workspace-info")
 	return containerTunnelCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *ContainerTunnelCmd) Run(ctx context.Context, log log.Logger) error {
 	// write workspace info
 	shouldExit, workspaceInfo, err := agent.WriteWorkspaceInfo(cmd.WorkspaceInfo, log)
@@ -104,7 +106,12 @@ func (cmd *ContainerTunnelCmd) Run(ctx context.Context, log log.Logger) error {
 	return nil
 }
 
-func startDevContainer(ctx context.Context, workspaceConfig *provider2.AgentWorkspaceInfo, runner devcontainer.Runner, log log.Logger) error {
+func startDevContainer(
+	ctx context.Context,
+	workspaceConfig *provider2.AgentWorkspaceInfo,
+	runner devcontainer.Runner,
+	log log.Logger,
+) error {
 	containerDetails, err := runner.Find(ctx)
 	if err != nil {
 		return err
@@ -120,7 +127,7 @@ func startDevContainer(ctx context.Context, workspaceConfig *provider2.AgentWork
 	} else if encoding.IsLegacyUID(workspaceConfig.Workspace.UID) {
 		// make sure workspace result is in devcontainer
 		buf := &bytes.Buffer{}
-		err = runner.Command(ctx, "root", "cat "+setup.ResultLocation, nil, buf, buf)
+		err = runner.Command(ctx, "root", "cat "+pkgconfig.DevContainerResultPath, nil, buf, buf)
 		if err != nil {
 			// start container
 			_, err = StartContainer(ctx, runner, log, workspaceConfig)
@@ -133,9 +140,18 @@ func startDevContainer(ctx context.Context, workspaceConfig *provider2.AgentWork
 	return nil
 }
 
-func StartContainer(ctx context.Context, runner devcontainer.Runner, log log.Logger, workspaceConfig *provider2.AgentWorkspaceInfo) (*config.Result, error) {
+func StartContainer(
+	ctx context.Context,
+	runner devcontainer.Runner,
+	log log.Logger,
+	workspaceConfig *provider2.AgentWorkspaceInfo,
+) (*config.Result, error) {
 	log.Debugf("starting DevPod container")
-	result, err := runner.Up(ctx, devcontainer.UpOptions{NoBuild: true}, workspaceConfig.InjectTimeout)
+	result, err := runner.Up(
+		ctx,
+		devcontainer.UpOptions{NoBuild: true},
+		workspaceConfig.InjectTimeout,
+	)
 	if err != nil {
 		return result, err
 	}

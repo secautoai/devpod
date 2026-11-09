@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// SetupGPGCmd holds the setupGPG cmd flags
+// SetupGPGCmd holds the setupGPG cmd flags.
 type SetupGPGCmd struct {
 	*flags.GlobalFlags
 
@@ -22,7 +22,7 @@ type SetupGPGCmd struct {
 	GitKey     string
 }
 
-// NewSetupGPGCmd creates a new command
+// NewSetupGPGCmd creates a new command.
 func NewSetupGPGCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &SetupGPGCmd{
 		GlobalFlags: flags,
@@ -35,9 +35,12 @@ func NewSetupGPGCmd(flags *flags.GlobalFlags) *cobra.Command {
 			return cmd.Run(cobraCmd.Context(), log.Default.ErrorStreamOnly())
 		},
 	}
-	setupGPGCmd.Flags().StringVar(&cmd.OwnerTrust, "ownertrust", "", "GPG Owner trust to import in armor form")
-	setupGPGCmd.Flags().StringVar(&cmd.SocketPath, "socketpath", "", "path to the gpg socket forwarded")
-	setupGPGCmd.Flags().StringVar(&cmd.GitKey, "gitkey", "", "gpg key to use for git commit signing")
+	setupGPGCmd.Flags().
+		StringVar(&cmd.OwnerTrust, "ownertrust", "", "GPG Owner trust to import in armor form")
+	setupGPGCmd.Flags().
+		StringVar(&cmd.SocketPath, "socketpath", "", "path to the gpg socket forwarded")
+	setupGPGCmd.Flags().
+		StringVar(&cmd.GitKey, "gitkey", "", "gpg key to use for git commit signing")
 	return setupGPGCmd
 }
 
@@ -49,7 +52,7 @@ func NewSetupGPGCmd(flags *flags.GlobalFlags) *cobra.Command {
 // - importing those into the container
 // - ensuring the gpg-agent is stopped in the container
 // - starting a reverse-tunnel of the local unix socket to remote
-// - ensuring paths and permissions are correctly set in the remote
+// - ensuring paths and permissions are correctly set in the remote.
 func (cmd *SetupGPGCmd) Run(ctx context.Context, log log.Logger) error {
 	log.Debugf("Initializing gpg-agent forwarding")
 
@@ -132,10 +135,8 @@ func (cmd *SetupGPGCmd) Run(ctx context.Context, log log.Logger) error {
 
 	if gpgConf.GitKey != "" {
 		log.Debugf("Setup git signing key")
-		err = gitcredentials.SetupGpgGitKey(gpgConf.GitKey)
-		if err != nil {
-			log.Errorf("Setup git signing key: %v", err)
-			return err
+		if err := gitcredentials.SetupGpgGitKey(gpgConf.GitKey); err != nil {
+			log.Warnf("Setup git signing key failed (non-fatal): %v", err)
 		}
 	}
 

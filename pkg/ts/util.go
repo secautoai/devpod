@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/log"
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
@@ -22,11 +23,11 @@ func GetClientHostname(userName string) (string, error) {
 		return "", err
 	}
 	osHostname = strings.ToLower(strings.ReplaceAll(osHostname, ".", "-"))
-	return fmt.Sprintf("devpod.%s.%s.client", osHostname, userName), nil
+	return fmt.Sprintf(config.BinaryName+".%s.%s.client", osHostname, userName), nil
 }
 
 func GetWorkspaceHostname(name, namespace string) string {
-	return fmt.Sprintf("devpod.%s.%s.workspace", name, namespace)
+	return fmt.Sprintf(config.BinaryName+".%s.%s.workspace", name, namespace)
 }
 
 func ParseWorkspaceHostname(hostname string) (name string, project string, err error) {
@@ -49,7 +50,13 @@ func GetURL(host string, port int) string {
 }
 
 // WaitHostReachable polls until the given host is reachable via ts.
-func WaitHostReachable(ctx context.Context, lc *local.Client, addr Addr, maxRetries int, log log.Logger) error {
+func WaitHostReachable(
+	ctx context.Context,
+	lc *local.Client,
+	addr Addr,
+	maxRetries int,
+	log log.Logger,
+) error {
 	for i := range maxRetries {
 		timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
@@ -71,8 +78,15 @@ func WaitHostReachable(ctx context.Context, lc *local.Client, addr Addr, maxRetr
 	return fmt.Errorf("host %s not reachable", addr.String())
 }
 
-func WatchNetmap(ctx context.Context, lc *local.Client, netmapChangedFn func(nm *netmap.NetworkMap)) error {
-	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialNetMap|ipn.NotifyRateLimit|ipn.NotifyWatchEngineUpdates)
+func WatchNetmap(
+	ctx context.Context,
+	lc *local.Client,
+	netmapChangedFn func(nm *netmap.NetworkMap),
+) error {
+	watcher, err := lc.WatchIPNBus(
+		ctx,
+		ipn.NotifyInitialNetMap|ipn.NotifyRateLimit|ipn.NotifyWatchEngineUpdates,
+	)
 	if err != nil {
 		return err
 	}

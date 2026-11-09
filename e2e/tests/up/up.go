@@ -33,7 +33,7 @@ var _ = ginkgo.Describe("testing up command", ginkgo.Label("up-workspaces"), fun
 		framework.ExpectNoError(err)
 
 		name := "vscode-remote-try-python"
-		ginkgo.DeferCleanup(f.DevPodWorkspaceDelete, context.Background(), name)
+		ginkgo.DeferCleanup(f.DevPodWorkspaceDelete, name)
 
 		// Wait for devpod workspace to come online (deadline: 30s)
 		err = f.DevPodUp(ctx, "https://github.com/microsoft/vscode-remote-try-python.git")
@@ -75,7 +75,7 @@ var _ = ginkgo.Describe("testing up command", ginkgo.Label("up-workspaces"), fun
 		// set env vars with file
 		tmpDir, err := framework.CreateTempDir()
 		framework.ExpectNoError(err)
-		defer func() { _ = os.RemoveAll(tmpDir) }()
+		ginkgo.DeferCleanup(func() { _ = os.RemoveAll(tmpDir) })
 
 		// create invalid env file
 		invalidData := []byte("TEST VAR=" + value)
@@ -124,7 +124,12 @@ var _ = ginkgo.Describe("testing up command", ginkgo.Label("up-workspaces"), fun
 		framework.ExpectNoError(err)
 
 		// set env var from both files
-		err = f.DevPodUp(ctx, name, "--workspace-env-file", fmt.Sprintf("%s,%s", workspaceEnvFileValid, workspaceEnvFileValid2))
+		err = f.DevPodUp(
+			ctx,
+			name,
+			"--workspace-env-file",
+			fmt.Sprintf("%s,%s", workspaceEnvFileValid, workspaceEnvFileValid2),
+		)
 		framework.ExpectNoError(err)
 
 		// check env var from .valid file
@@ -151,8 +156,8 @@ var _ = ginkgo.Describe("testing up command", ginkgo.Label("up-workspaces"), fun
 		framework.ExpectNoError(err)
 		err = f.DevPodProviderUse(ctx, providerName)
 		framework.ExpectNoError(err)
-		ginkgo.DeferCleanup(func() {
-			err = f.DevPodProviderDelete(context.Background(), providerName)
+		ginkgo.DeferCleanup(func(cleanupCtx context.Context) {
+			err := f.DevPodProviderDelete(cleanupCtx, providerName)
 			framework.ExpectNoError(err)
 		})
 
@@ -171,11 +176,15 @@ var _ = ginkgo.Describe("testing up command", ginkgo.Label("up-workspaces"), fun
 
 		devcontainerPath := path.Join("/workspaces", projectName, ".devcontainer.json")
 
-		containerEnvPath, _, err := f.ExecCommandCapture(ctx, []string{"ssh", "--command", "cat " + devcontainerPath, projectName})
+		containerEnvPath, _, err := f.ExecCommandCapture(
+			ctx,
+			[]string{"ssh", "--command", "cat " + devcontainerPath, projectName},
+		)
 		framework.ExpectNoError(err)
 		expectedImageName := language.MapConfig[language.Go].Image
 
-		gomega.Expect(containerEnvPath).To(gomega.Equal(fmt.Sprintf("{\"image\":\"%s\"}", expectedImageName)))
+		gomega.Expect(containerEnvPath).
+			To(gomega.Equal(fmt.Sprintf("{\"image\":\"%s\"}", expectedImageName)))
 
 		err = f.DevPodWorkspaceDelete(ctx, tempDir)
 		framework.ExpectNoError(err)
@@ -194,8 +203,8 @@ var _ = ginkgo.Describe("testing up command", ginkgo.Label("up-workspaces"), fun
 		framework.ExpectNoError(err)
 		err = f.DevPodProviderUse(ctx, providerName)
 		framework.ExpectNoError(err)
-		ginkgo.DeferCleanup(func() {
-			err = f.DevPodProviderDelete(context.Background(), providerName)
+		ginkgo.DeferCleanup(func(cleanupCtx context.Context) {
+			err := f.DevPodProviderDelete(cleanupCtx, providerName)
 			framework.ExpectNoError(err)
 		})
 
@@ -220,20 +229,26 @@ var _ = ginkgo.Describe("testing up command", ginkgo.Label("up-workspaces"), fun
 		framework.ExpectNoError(err)
 		err = f.DevPodProviderUse(ctx, providerName)
 		framework.ExpectNoError(err)
-		ginkgo.DeferCleanup(func() {
-			err = f.DevPodProviderDelete(context.Background(), providerName)
+		ginkgo.DeferCleanup(func(cleanupCtx context.Context) {
+			err := f.DevPodProviderDelete(cleanupCtx, providerName)
 			framework.ExpectNoError(err)
 		})
 
 		id := "subpath--devpod-jupyter-notebook-hello-world"
-		err = f.DevPodUp(ctx, "https://github.com/loft-sh/examples@subpath:/devpod/jupyter-notebook-hello-world")
+		err = f.DevPodUp(
+			ctx,
+			"https://github.com/loft-sh/examples@subpath:/devpod/jupyter-notebook-hello-world",
+		)
 		framework.ExpectNoError(err)
 
 		_, err = f.DevPodSSH(ctx, id, "pwd")
 		framework.ExpectNoError(err)
 
 		// recreate
-		err = f.DevPodUpRecreate(ctx, "https://github.com/loft-sh/examples@subpath:/devpod/jupyter-notebook-hello-world")
+		err = f.DevPodUpRecreate(
+			ctx,
+			"https://github.com/loft-sh/examples@subpath:/devpod/jupyter-notebook-hello-world",
+		)
 		framework.ExpectNoError(err)
 
 		_, err = f.DevPodSSH(ctx, id, "pwd")
@@ -253,13 +268,16 @@ var _ = ginkgo.Describe("testing up command", ginkgo.Label("up-workspaces"), fun
 		framework.ExpectNoError(err)
 		err = f.DevPodProviderUse(ctx, providerName)
 		framework.ExpectNoError(err)
-		ginkgo.DeferCleanup(func() {
-			err = f.DevPodProviderDelete(context.Background(), providerName)
+		ginkgo.DeferCleanup(func(cleanupCtx context.Context) {
+			err := f.DevPodProviderDelete(cleanupCtx, providerName)
 			framework.ExpectNoError(err)
 		})
 
 		id := "subpath--devpod-jupyter-notebook-hello-world"
-		err = f.DevPodUp(ctx, "https://github.com/loft-sh/examples@subpath:/devpod/jupyter-notebook-hello-world")
+		err = f.DevPodUp(
+			ctx,
+			"https://github.com/loft-sh/examples@subpath:/devpod/jupyter-notebook-hello-world",
+		)
 		framework.ExpectNoError(err)
 
 		// create files in root and in workspace, after create we expect data to still be there
@@ -269,7 +287,10 @@ var _ = ginkgo.Describe("testing up command", ginkgo.Label("up-workspaces"), fun
 		framework.ExpectNoError(err)
 
 		// reset
-		err = f.DevPodUpReset(ctx, "https://github.com/loft-sh/examples@subpath:/devpod/jupyter-notebook-hello-world")
+		err = f.DevPodUpReset(
+			ctx,
+			"https://github.com/loft-sh/examples@subpath:/devpod/jupyter-notebook-hello-world",
+		)
 		framework.ExpectNoError(err)
 
 		// this should fail! because --reset should trigger a new git clone

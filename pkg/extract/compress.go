@@ -3,6 +3,7 @@ package extract
 import (
 	"archive/tar"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,11 +12,14 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"errors"
 )
 
-func WriteTarExclude(writer io.Writer, localPath string, compress bool, excludedPaths []string) error {
+func WriteTarExclude(
+	writer io.Writer,
+	localPath string,
+	compress bool,
+	excludedPaths []string,
+) error {
 	absolute, err := filepath.Abs(localPath)
 	if err != nil {
 		return fmt.Errorf("absolute: %w", err)
@@ -42,7 +46,11 @@ func WriteTarExclude(writer io.Writer, localPath string, compress bool, excluded
 
 	// When its a file we copy the file to the toplevel of the tar
 	if !stat.IsDir() {
-		return NewArchiver(filepath.Dir(absolute), tarWriter, excludedPaths).AddToArchive(filepath.Base(absolute))
+		return NewArchiver(
+			filepath.Dir(absolute),
+			tarWriter,
+			excludedPaths,
+		).AddToArchive(filepath.Base(absolute))
 	}
 
 	// When its a folder we copy the contents and not the folder itself to the
@@ -54,7 +62,7 @@ func WriteTar(writer io.Writer, localPath string, compress bool) error {
 	return WriteTarExclude(writer, localPath, compress, nil)
 }
 
-// Archiver is responsible for compressing specific files and folders within a target directory
+// Archiver is responsible for compressing specific files and folders within a target directory.
 type Archiver struct {
 	basePath     string
 	writer       *tar.Writer
@@ -63,7 +71,7 @@ type Archiver struct {
 	excludedPaths []string
 }
 
-// NewArchiver creates a new archiver
+// NewArchiver creates a new archiver.
 func NewArchiver(basePath string, writer *tar.Writer, excludedPaths []string) *Archiver {
 	return &Archiver{
 		basePath:     basePath,
@@ -74,7 +82,7 @@ func NewArchiver(basePath string, writer *tar.Writer, excludedPaths []string) *A
 	}
 }
 
-// AddToArchive adds a new path to the archive
+// AddToArchive adds a new path to the archive.
 func (a *Archiver) AddToArchive(relativePath string) error {
 	if a.writtenFiles[relativePath] {
 		return nil
@@ -201,13 +209,13 @@ func (a *Archiver) tarFile(target string, targetStat os.FileInfo) error {
 }
 
 const (
-	modeISDIR  = 040000  // Directory
-	modeISFIFO = 010000  // FIFO
-	modeISREG  = 0100000 // Regular file
-	modeISLNK  = 0120000 // Symbolic link
-	modeISBLK  = 060000  // Block special file
-	modeISCHR  = 020000  // Character special file
-	modeISSOCK = 0140000 // Socket
+	modeISDIR  = 0o40000  // Directory
+	modeISFIFO = 0o10000  // FIFO
+	modeISREG  = 0o100000 // Regular file
+	modeISLNK  = 0o120000 // Symbolic link
+	modeISBLK  = 0o60000  // Block special file
+	modeISCHR  = 0o20000  // Character special file
+	modeISSOCK = 0o140000 // Socket
 )
 
 // chmodTarEntry is used to adjust the file permissions used in tar header based
@@ -221,8 +229,8 @@ func chmodTarEntry(perm os.FileMode) os.FileMode {
 	permPart := perm & os.ModePerm
 	noPermPart := perm &^ os.ModePerm
 	// Add the x bit: make everything +x from windows
-	permPart |= 0111
-	permPart &= 0755
+	permPart |= 0o111
+	permPart &= 0o755
 
 	return noPermPart | permPart
 }

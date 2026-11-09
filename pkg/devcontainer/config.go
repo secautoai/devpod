@@ -1,11 +1,16 @@
 package devcontainer
 
 import (
+	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
+	"strings"
 
+	pkgconfig "github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/devcontainer/config"
 	"github.com/skevetter/devpod/pkg/devcontainer/crane"
 	"github.com/skevetter/devpod/pkg/language"
@@ -14,11 +19,19 @@ import (
 
 func (r *runner) getRawConfig(options provider2.CLIOptions) (*config.DevContainerConfig, error) {
 	if r.WorkspaceConfig.Workspace.DevContainerConfig != nil {
-		rawParsedConfig := config.CloneDevContainerConfig(r.WorkspaceConfig.Workspace.DevContainerConfig)
+		rawParsedConfig := config.CloneDevContainerConfig(
+			r.WorkspaceConfig.Workspace.DevContainerConfig,
+		)
 		if r.WorkspaceConfig.Workspace.DevContainerPath != "" {
-			rawParsedConfig.Origin = path.Join(filepath.ToSlash(r.LocalWorkspaceFolder), r.WorkspaceConfig.Workspace.DevContainerPath)
+			rawParsedConfig.Origin = path.Join(
+				filepath.ToSlash(r.LocalWorkspaceFolder),
+				r.WorkspaceConfig.Workspace.DevContainerPath,
+			)
 		} else {
-			rawParsedConfig.Origin = path.Join(filepath.ToSlash(r.LocalWorkspaceFolder), ".devcontainer.devpod.json")
+			rawParsedConfig.Origin = path.Join(
+				filepath.ToSlash(r.LocalWorkspaceFolder),
+				".devcontainer."+pkgconfig.BinaryName+".json",
+			)
 		}
 		return rawParsedConfig, nil
 	} else if r.WorkspaceConfig.Workspace.Source.Container != "" {
@@ -49,7 +62,10 @@ func (r *runner) getRawConfig(options provider2.CLIOptions) (*config.DevContaine
 	// if a subpath is specified, let's move to it
 
 	if r.WorkspaceConfig.Workspace.Source.GitSubPath != "" {
-		localWorkspaceFolder = filepath.Join(r.LocalWorkspaceFolder, r.WorkspaceConfig.Workspace.Source.GitSubPath)
+		localWorkspaceFolder = filepath.Join(
+			r.LocalWorkspaceFolder,
+			r.WorkspaceConfig.Workspace.Source.GitSubPath,
+		)
 	}
 
 	// parse the devcontainer json
@@ -77,7 +93,10 @@ func (r *runner) getRawConfig(options provider2.CLIOptions) (*config.DevContaine
 			func(matches []string) (string, error) {
 				if len(matches) > 1 {
 					ids, _ := config.ListDevContainerIDs(localWorkspaceFolder)
-					return "", fmt.Errorf("multiple devcontainer configurations found. Use --devcontainer-id to select one: %v", ids)
+					return "", fmt.Errorf(
+						"multiple devcontainer configurations found. Use --devcontainer-id to select one: %v",
+						ids,
+					)
 				}
 				return matches[0], nil
 			},
@@ -95,7 +114,9 @@ func (r *runner) getRawConfig(options provider2.CLIOptions) (*config.DevContaine
 	return rawParsedConfig, nil
 }
 
-func (r *runner) getDefaultConfig(options provider2.CLIOptions) (*config.DevContainerConfig, error) {
+func (r *runner) getDefaultConfig(
+	options provider2.CLIOptions,
+) (*config.DevContainerConfig, error) {
 	defaultConfig := &config.DevContainerConfig{}
 	if options.FallbackImage != "" {
 		r.Log.Infof("Using fallback image %s", options.FallbackImage)
@@ -115,7 +136,9 @@ func (r *runner) getDefaultConfig(options provider2.CLIOptions) (*config.DevCont
 	return defaultConfig, nil
 }
 
-func (r *runner) getSubstitutedConfig(options provider2.CLIOptions) (*config.SubstitutedConfig, *config.SubstitutionContext, error) {
+func (r *runner) getSubstitutedConfig(
+	options provider2.CLIOptions,
+) (*config.SubstitutedConfig, *config.SubstitutionContext, error) {
 	rawConfig, err := r.getRawConfig(options)
 	if err != nil {
 		return nil, nil, err
@@ -136,11 +159,19 @@ func (r *runner) substitute(
 		r.WorkspaceConfig.Workspace.ID,
 		rawParsedConfig,
 	)
+
+	// merge InitEnv into environment for variable substitution
+	env := config.ListToObject(os.Environ())
+	if len(options.InitEnv) > 0 {
+		initEnv := config.ListToObject(options.InitEnv)
+		maps.Copy(env, initEnv)
+	}
+
 	substitutionContext := &config.SubstitutionContext{
 		DevContainerID:           r.ID,
 		LocalWorkspaceFolder:     r.LocalWorkspaceFolder,
 		ContainerWorkspaceFolder: containerWorkspaceFolder,
-		Env:                      config.ListToObject(os.Environ()),
+		Env:                      env,
 
 		WorkspaceMount: workspaceMount,
 	}
@@ -165,9 +196,183 @@ func (r *runner) substitute(
 		parsedConfig.ImageContainer = config.ImageContainer{Image: options.DevContainerImage}
 	}
 
+	if err := mergeExtraFeatures(
+		parsedConfig,
+		substitutionContext,
+		options.ExtraDevContainerConfig,
+	); err != nil {
+		return nil, nil, err
+	}
+
+	// merge additional features from CLI flag
+	if options.AdditionalFeatures != "" {
+		additionalFeatures := make(map[string]any)
+		if err := json.Unmarshal(
+			[]byte(options.AdditionalFeatures),
+			&additionalFeatures,
+		); err != nil {
+			return nil, nil, fmt.Errorf("parse --additional-features JSON: %w", err)
+		}
+		if parsedConfig.Features == nil {
+			parsedConfig.Features = make(map[string]any)
+		}
+		maps.Copy(parsedConfig.Features, additionalFeatures)
+		r.Log.Infof(
+			"Merged %d additional feature(s): %v",
+			len(additionalFeatures),
+			slices.Collect(maps.Keys(additionalFeatures)),
+		)
+	}
+
 	parsedConfig.Origin = configFile
 	return &config.SubstitutedConfig{
 		Config: parsedConfig,
 		Raw:    rawParsedConfig,
 	}, substitutionContext, nil
+}
+
+// mergeExtraFeatures applies extra-file features before the CLI feature overrides.
+func mergeExtraFeatures(
+	parsedConfig *config.DevContainerConfig,
+	substitutionContext *config.SubstitutionContext,
+	extraConfig *config.DevContainerConfig,
+) error {
+	if extraConfig == nil || len(extraConfig.Features) == 0 {
+		return nil
+	}
+	extraFeatures := map[string]any{}
+	for featureID, featureOptions := range extraConfig.Features {
+		resolvedID, err := resolveExtraFeatureID(featureID, extraConfig.Origin)
+		if err != nil {
+			return err
+		}
+		extraFeatures[resolvedID] = featureOptions
+	}
+	substitutedFeatures := map[string]any{}
+	if err := config.Substitute(
+		substitutionContext,
+		extraFeatures,
+		&substitutedFeatures,
+	); err != nil {
+		return fmt.Errorf("substitute --extra-devcontainer-path features: %w", err)
+	}
+	if parsedConfig.Features == nil {
+		parsedConfig.Features = make(map[string]any)
+	}
+	maps.Copy(parsedConfig.Features, substitutedFeatures)
+	return nil
+}
+
+func resolveExtraFeatureID(featureID, extraConfigOrigin string) (string, error) {
+	if !strings.HasPrefix(featureID, "./") && !strings.HasPrefix(featureID, "../") {
+		return featureID, nil
+	}
+	featurePath, err := filepath.Abs(filepath.Join(filepath.Dir(extraConfigOrigin), featureID))
+	if err != nil {
+		return "", fmt.Errorf(
+			"resolve feature %s from --extra-devcontainer-path: %w",
+			featureID,
+			err,
+		)
+	}
+	return featurePath, nil
+}
+
+const (
+	jsonObjectStart = "{"
+	jsonArrayStart  = "["
+)
+
+// resolveCLIMounts parses CLI-provided mount values and applies variable substitution.
+func resolveCLIMounts(
+	substitutionContext *config.SubstitutionContext,
+	mounts []string,
+) ([]*config.Mount, error) {
+	if len(mounts) == 0 {
+		return nil, nil
+	}
+
+	resolvedMounts := make([]*config.Mount, 0, len(mounts))
+	for _, mount := range mounts {
+		resolvedMount, err := resolveCLIMount(substitutionContext, mount)
+		if err != nil {
+			return nil, err
+		}
+
+		resolvedMounts = append(resolvedMounts, resolvedMount)
+	}
+
+	return resolvedMounts, nil
+}
+
+func resolveCLIMount(
+	substitutionContext *config.SubstitutionContext,
+	mount string,
+) (*config.Mount, error) {
+	mountInput := strings.TrimSpace(mount)
+	parsedMount := &config.Mount{}
+	if err := json.Unmarshal([]byte(mountInput), parsedMount); err != nil {
+		if strings.HasPrefix(mountInput, jsonObjectStart) ||
+			strings.HasPrefix(mountInput, jsonArrayStart) {
+			return nil, fmt.Errorf("parse --mount JSON: %w", err)
+		}
+		parsed := config.ParseMount(mountInput)
+		parsedMount = &parsed
+	}
+	if strings.TrimSpace(parsedMount.Target) == "" {
+		return nil, fmt.Errorf("invalid --mount %q: target is required", mount)
+	}
+
+	resolvedMount := &config.Mount{}
+	if err := config.Substitute(substitutionContext, parsedMount, resolvedMount); err != nil {
+		return nil, fmt.Errorf("substitute --mount values: %w", err)
+	}
+	if strings.TrimSpace(resolvedMount.Target) == "" {
+		return nil, fmt.Errorf("invalid --mount %q: target is required", mount)
+	}
+
+	return resolvedMount, nil
+}
+
+// mergeCLIMounts merges CLI-provided mounts into the final runtime config.
+//
+// CLI mounts take precedence over existing mounts that resolve to the same target,
+// and when multiple CLI mounts use the same target, the last CLI mount wins.
+func mergeCLIMounts(
+	mergedConfig *config.MergedDevContainerConfig,
+	substitutionContext *config.SubstitutionContext,
+	mounts []string,
+) error {
+	resolvedMounts, err := resolveCLIMounts(substitutionContext, mounts)
+	if err != nil {
+		return err
+	}
+	if len(resolvedMounts) == 0 {
+		return nil
+	}
+
+	cliTargets := map[string]bool{}
+	dedupedCLIMounts := make([]*config.Mount, 0, len(resolvedMounts))
+	for _, mount := range slices.Backward(resolvedMounts) {
+		if cliTargets[mount.Target] {
+			continue
+		}
+
+		cliTargets[mount.Target] = true
+		dedupedCLIMounts = append(dedupedCLIMounts, mount)
+	}
+	slices.Reverse(dedupedCLIMounts)
+
+	filteredMounts := make([]*config.Mount, 0, len(mergedConfig.Mounts)+len(dedupedCLIMounts))
+	for _, mount := range mergedConfig.Mounts {
+		if cliTargets[mount.Target] {
+			continue
+		}
+
+		filteredMounts = append(filteredMounts, mount)
+	}
+
+	filteredMounts = append(filteredMounts, dedupedCLIMounts...)
+	mergedConfig.Mounts = filteredMounts
+	return nil
 }

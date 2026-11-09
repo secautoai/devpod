@@ -3,11 +3,15 @@ package inject
 import (
 	"net/url"
 	"strings"
+
+	"github.com/skevetter/devpod/pkg/config"
 )
 
-const AmdUrl = "devpod-linux-amd64"
-const ArmUrl = "devpod-linux-arm64"
-const BinNamePlaceholder = "${BIN_NAME}"
+const (
+	AmdUrl             = config.BinaryName + "-linux-amd64"
+	ArmUrl             = config.BinaryName + "-linux-arm64"
+	BinNamePlaceholder = "${BIN_NAME}"
+)
 
 type DownloadURLs struct {
 	Base string

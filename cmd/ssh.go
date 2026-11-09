@@ -3,16 +3,17 @@ package cmd
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"path"
 	"strings"
+	"sync"
 	"time"
 
-	"errors"
-
+	"al.essio.dev/pkg/shellescape"
 	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/cmd/completion"
 	"github.com/skevetter/devpod/cmd/flags"
@@ -36,7 +37,7 @@ const (
 	DisableSSHKeepAlive time.Duration = 0 * time.Second
 )
 
-// SSHCmd holds the ssh cmd flags
+// SSHCmd holds the ssh cmd flags.
 type SSHCmd struct {
 	*flags.GlobalFlags
 
@@ -52,6 +53,7 @@ type SSHCmd struct {
 	AgentForwarding           bool
 	GPGAgentForwarding        bool
 	GitSSHSignatureForwarding bool
+	GitSSHSigningKey          string
 
 	// ssh keepalive options
 	SSHKeepAliveInterval time.Duration `json:"sshKeepAliveInterval,omitempty"`
@@ -65,7 +67,7 @@ type SSHCmd struct {
 	WorkDir string
 }
 
-// NewSSHCmd creates a new ssh command
+// NewSSHCmd creates a new ssh command.
 func NewSSHCmd(f *flags.GlobalFlags) *cobra.Command {
 	cmd := &SSHCmd{
 		GlobalFlags: f,
@@ -82,7 +84,14 @@ func NewSSHCmd(f *flags.GlobalFlags) *cobra.Command {
 			localOnly := cmd.Stdio
 
 			ctx := cobraCmd.Context()
-			client, err := workspace2.Get(ctx, devPodConfig, args, true, cmd.Owner, localOnly, log.Default.ErrorStreamOnly())
+			client, err := workspace2.Get(ctx, workspace2.GetOptions{
+				DevPodConfig:   devPodConfig,
+				Args:           args,
+				ChangeLastUsed: true,
+				Owner:          cmd.Owner,
+				LocalOnly:      localOnly,
+				Log:            log.Default.ErrorStreamOnly(),
+			})
 			if err != nil {
 				return err
 			}
@@ -90,25 +99,59 @@ func NewSSHCmd(f *flags.GlobalFlags) *cobra.Command {
 			return cmd.Run(ctx, devPodConfig, client, log.Default.ErrorStreamOnly())
 		},
 		ValidArgsFunction: func(rootCmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			return completion.GetWorkspaceSuggestions(rootCmd, cmd.Context, cmd.Provider, args, toComplete, cmd.Owner, log.Default)
+			return completion.GetWorkspaceSuggestions(
+				rootCmd,
+				cmd.Context,
+				cmd.Provider,
+				args,
+				toComplete,
+				cmd.Owner,
+				log.Default,
+			)
 		},
 	}
 
-	sshCmd.Flags().StringArrayVarP(&cmd.ForwardPorts, "forward-ports", "L", []string{}, "Specifies that connections to the given TCP port or Unix socket on the local (client) host are to be forwarded to the given host and port, or Unix socket, on the remote side.")
-	sshCmd.Flags().StringArrayVarP(&cmd.ReverseForwardPorts, "reverse-forward-ports", "R", []string{}, "Specifies that connections to the given TCP port or Unix socket on the local (client) host are to be reverse forwarded to the given host and port, or Unix socket, on the remote side.")
-	sshCmd.Flags().StringArrayVarP(&cmd.SendEnvVars, "send-env", "", []string{}, "Specifies which local env variables shall be sent to the container.")
-	sshCmd.Flags().StringArrayVarP(&cmd.SetEnvVars, "set-env", "", []string{}, "Specifies env variables to be set in the container.")
-	sshCmd.Flags().StringVar(&cmd.ForwardPortsTimeout, "forward-ports-timeout", "", "Specifies the timeout after which the command should terminate when the ports are unused.")
-	sshCmd.Flags().StringVar(&cmd.Command, "command", "", "The command to execute within the workspace")
+	sshCmd.Flags().
+		StringArrayVarP(&cmd.ForwardPorts, "forward-ports", "L", []string{},
+			"Specifies that connections to the given TCP port or Unix socket on the local (client) "+
+				"host are to be forwarded to the given host, service name, and port, or Unix socket, on the remote side.")
+	sshCmd.Flags().
+		StringArrayVarP(&cmd.ReverseForwardPorts, "reverse-forward-ports", "R", []string{},
+			"Specifies that connections to the given TCP port or Unix socket on the remote side "+
+				"are to be reverse forwarded to the given local host, service name, and port, or Unix socket.")
+	sshCmd.Flags().
+		StringArrayVarP(&cmd.SendEnvVars, "send-env", "", []string{},
+			"Specifies which local env variables shall be sent to the container.")
+	sshCmd.Flags().
+		StringArrayVarP(&cmd.SetEnvVars, "set-env", "", []string{}, "Specifies env variables to be set in the container.")
+	sshCmd.Flags().
+		StringVar(&cmd.ForwardPortsTimeout, "forward-ports-timeout", "",
+			"Specifies the timeout after which the command should terminate when the ports are unused.")
+	sshCmd.Flags().
+		StringVar(&cmd.Command, "command", "", "The command to execute within the workspace")
 	sshCmd.Flags().StringVar(&cmd.User, "user", "", "The user of the workspace to use")
 	sshCmd.Flags().StringVar(&cmd.WorkDir, "workdir", "", "The working directory in the container")
-	sshCmd.Flags().BoolVar(&cmd.AgentForwarding, "agent-forwarding", true, "If true forward the local ssh keys to the remote machine")
-	sshCmd.Flags().StringVar(&cmd.ReuseSSHAuthSock, "reuse-ssh-auth-sock", "", "If set, the SSH_AUTH_SOCK is expected to already be available in the workspace (under /tmp using the key provided) and the connection reuses this instead of creating a new one")
+	sshCmd.Flags().
+		BoolVar(&cmd.AgentForwarding, "agent-forwarding", true, "If true forward the local ssh keys to the remote machine")
+	sshCmd.Flags().
+		StringVar(&cmd.ReuseSSHAuthSock, "reuse-ssh-auth-sock", "",
+			"If set, the SSH_AUTH_SOCK is expected to already be available in the workspace "+
+				"(under /tmp using the key provided) and the connection reuses this instead of creating a new one")
 	_ = sshCmd.Flags().MarkHidden("reuse-ssh-auth-sock")
-	sshCmd.Flags().BoolVar(&cmd.GPGAgentForwarding, "gpg-agent-forwarding", false, "If true forward the local gpg-agent to the remote machine")
-	sshCmd.Flags().BoolVar(&cmd.Stdio, "stdio", false, "If true will tunnel connection through stdout and stdin")
-	sshCmd.Flags().BoolVar(&cmd.StartServices, "start-services", true, "If false will not start any port-forwarding or git / docker credentials helper")
-	sshCmd.Flags().DurationVar(&cmd.SSHKeepAliveInterval, "ssh-keepalive-interval", 55*time.Second, "How often should keepalive request be made (55s)")
+	sshCmd.Flags().
+		BoolVar(&cmd.GPGAgentForwarding, "gpg-agent-forwarding", false,
+			"If true forward the local gpg-agent to the remote machine")
+	sshCmd.Flags().
+		BoolVar(&cmd.Stdio, "stdio", false, "If true will tunnel connection through stdout and stdin")
+	sshCmd.Flags().
+		BoolVar(&cmd.StartServices, "start-services", true,
+			"If false will not start any port-forwarding or git / docker credentials helper")
+	sshCmd.Flags().
+		DurationVar(&cmd.SSHKeepAliveInterval, "ssh-keepalive-interval", 55*time.Second,
+			"How often should keepalive request be made (55s)")
+	sshCmd.Flags().
+		StringVar(&cmd.GitSSHSigningKey, "git-ssh-signing-key", "",
+			"The SSH signing key to use for git commit signing inside the workspace")
 	sshCmd.Flags().StringVar(
 		&cmd.TermMode,
 		"term-mode",
@@ -125,15 +168,19 @@ func NewSSHCmd(f *flags.GlobalFlags) *cobra.Command {
 	return sshCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *SSHCmd) Run(
 	ctx context.Context,
 	devPodConfig *config.Config,
 	client client2.BaseWorkspaceClient,
-	log log.Logger) error {
+	log log.Logger,
+) error {
 	// add ssh keys to agent
-	if devPodConfig.ContextOption(config.ContextOptionSSHAgentForwarding) == "true" && devPodConfig.ContextOption(config.ContextOptionSSHAddPrivateKeys) == "true" {
-		log.Debug("adding ssh keys to agent, disable via 'devpod context set-options -o SSH_ADD_PRIVATE_KEYS=false'")
+	if devPodConfig.ContextOption(config.ContextOptionSSHAgentForwarding) == config.BoolTrue &&
+		devPodConfig.ContextOption(config.ContextOptionSSHAddPrivateKeys) == config.BoolTrue {
+		log.Debug(
+			"adding ssh keys to agent, disable via 'devpod context set-options -o SSH_ADD_PRIVATE_KEYS=false'",
+		)
 		err := devssh.AddPrivateKeysToAgent(ctx, log)
 		if err != nil {
 			log.Debugf("Error adding private keys to ssh-agent: %v", err)
@@ -143,7 +190,11 @@ func (cmd *SSHCmd) Run(
 	// get user
 	if cmd.User == "" {
 		var err error
-		cmd.User, err = devssh.GetUser(client.WorkspaceConfig().ID, client.WorkspaceConfig().SSHConfigPath, client.WorkspaceConfig().SSHConfigIncludePath)
+		cmd.User, err = devssh.GetUser(
+			client.WorkspaceConfig().ID,
+			client.WorkspaceConfig().SSHConfigPath,
+			client.WorkspaceConfig().SSHConfigIncludePath,
+		)
 		if err != nil {
 			return err
 		}
@@ -202,15 +253,18 @@ func (cmd *SSHCmd) jumpContainerTailscale(
 
 	if cmd.StartServices {
 		go func() {
-			err = clientimplementation.StartServicesDaemon(ctx, clientimplementation.StartServicesDaemonOptions{
-				DevPodConfig: devPodConfig,
-				Client:       client,
-				SSHClient:    toolSSHClient,
-				User:         cmd.User,
-				Log:          log,
-				ForwardPorts: false,
-				ExtraPorts:   nil,
-			})
+			err = clientimplementation.StartServicesDaemon(
+				ctx,
+				clientimplementation.StartServicesDaemonOptions{
+					DevPodConfig: devPodConfig,
+					Client:       client,
+					SSHClient:    toolSSHClient,
+					User:         cmd.User,
+					Log:          log,
+					ForwardPorts: false,
+					ExtraPorts:   nil,
+				},
+			)
 			if err != nil {
 				log.Errorf("Error starting services: %v", err)
 			}
@@ -218,8 +272,9 @@ func (cmd *SSHCmd) jumpContainerTailscale(
 	}
 
 	// Handle GPG agent forwarding
-	if cmd.GPGAgentForwarding || devPodConfig.ContextOption(config.ContextOptionGPGAgentForwarding) == "true" {
-		if gpg.IsGpgTunnelRunning(cmd.User, ctx, toolSSHClient, log) {
+	if cmd.GPGAgentForwarding ||
+		devPodConfig.ContextOption(config.ContextOptionGPGAgentForwarding) == config.BoolTrue {
+		if gpg.IsGpgTunnelRunning(ctx, cmd.User, toolSSHClient, log) {
 			log.Debugf("[GPG] exporting already running, skipping")
 		} else if err := cmd.setupGPGAgent(ctx, toolSSHClient, log); err != nil {
 			return err
@@ -242,8 +297,11 @@ func (cmd *SSHCmd) jumpContainerTailscale(
 		machine.RunSSHSessionOptions{
 			AgentForwarding: cmd.AgentForwarding,
 			Command:         cmd.Command,
-			SessionOptions:  machine.SSHSessionOptions{TermMode: cmd.TermMode, InstallTerminfo: cmd.InstallTerminfo},
-			Stderr:          os.Stderr,
+			SessionOptions: machine.SSHSessionOptions{
+				TermMode:        cmd.TermMode,
+				InstallTerminfo: cmd.InstallTerminfo,
+			},
+			Stderr: os.Stderr,
 		},
 	)
 }
@@ -325,15 +383,16 @@ func (cmd *SSHCmd) jumpContainer(
 }
 
 func (cmd *SSHCmd) forwardTimeout(log log.Logger) (time.Duration, error) {
-	timeout := time.Duration(0)
-	if cmd.ForwardPortsTimeout != "" {
-		timeout, err := time.ParseDuration(cmd.ForwardPortsTimeout)
-		if err != nil {
-			return timeout, fmt.Errorf("parse forward ports timeout: %w", err)
-		}
-
-		log.Infof("Using port forwarding timeout of %s", cmd.ForwardPortsTimeout)
+	if cmd.ForwardPortsTimeout == "" {
+		return 0, nil
 	}
+
+	timeout, err := time.ParseDuration(cmd.ForwardPortsTimeout)
+	if err != nil {
+		return 0, fmt.Errorf("parse forward ports timeout: %w", err)
+	}
+
+	log.Infof("Using port forwarding timeout of %s", cmd.ForwardPortsTimeout)
 
 	return timeout, nil
 }
@@ -343,44 +402,11 @@ func (cmd *SSHCmd) reverseForwardPorts(
 	containerClient *ssh.Client,
 	log log.Logger,
 ) error {
-	timeout, err := cmd.forwardTimeout(log)
-	if err != nil {
-		return fmt.Errorf("parse forward ports timeout: %w", err)
-	}
-
-	errChan := make(chan error, len(cmd.ReverseForwardPorts))
-	for _, portMapping := range cmd.ReverseForwardPorts {
-		mapping, err := port.ParsePortSpec(portMapping)
-		if err != nil {
-			return fmt.Errorf("parse port mapping: %w", err)
-		}
-
-		// start the forwarding
-		log.Infof(
-			"Reverse forwarding local %s/%s to remote %s/%s",
-			mapping.Host.Protocol,
-			mapping.Host.Address,
-			mapping.Container.Protocol,
-			mapping.Container.Address,
-		)
-		go func(portMapping string) {
-			err := devssh.ReversePortForward(
-				ctx,
-				containerClient,
-				mapping.Host.Protocol,
-				mapping.Host.Address,
-				mapping.Container.Protocol,
-				mapping.Container.Address,
-				timeout,
-				log,
-			)
-			if !errors.Is(io.EOF, err) {
-				errChan <- fmt.Errorf("error forwarding %s: %w", portMapping, err)
-			}
-		}(portMapping)
-	}
-
-	return <-errChan
+	return cmd.runPortForwards(ctx, containerClient, portForwardConfig{
+		mappings:    cmd.ReverseForwardPorts,
+		logTemplate: "Reverse forwarding remote %s/%s to local %s/%s",
+		forwardFn:   devssh.ReversePortForward,
+	}, log)
 }
 
 func (cmd *SSHCmd) forwardPorts(
@@ -388,28 +414,86 @@ func (cmd *SSHCmd) forwardPorts(
 	containerClient *ssh.Client,
 	log log.Logger,
 ) error {
-	timeout, err := cmd.forwardTimeout(log)
+	return cmd.runPortForwards(ctx, containerClient, portForwardConfig{
+		mappings:    cmd.ForwardPorts,
+		logTemplate: "Forwarding local %s/%s to remote %s/%s",
+		forwardFn:   devssh.PortForward,
+	}, log)
+}
+
+type portForwardFunc func(
+	context.Context,
+	*ssh.Client,
+	string,
+	string,
+	string,
+	string,
+	time.Duration,
+	log.Logger,
+) error
+
+type portForwardConfig struct {
+	mappings    []string
+	logTemplate string
+	forwardFn   portForwardFunc
+}
+
+type parsedPortForward struct {
+	spec    string
+	mapping port.Mapping
+}
+
+func parsePortForwards(mappings []string) ([]parsedPortForward, error) {
+	parsedMappings := make([]parsedPortForward, 0, len(mappings))
+	for _, portMapping := range mappings {
+		mapping, err := port.ParsePortSpec(portMapping)
+		if err != nil {
+			return nil, fmt.Errorf("parse port mapping: %w", err)
+		}
+
+		parsedMappings = append(parsedMappings, parsedPortForward{
+			spec:    portMapping,
+			mapping: mapping,
+		})
+	}
+
+	return parsedMappings, nil
+}
+
+func (cmd *SSHCmd) runPortForwards(
+	ctx context.Context,
+	containerClient *ssh.Client,
+	config portForwardConfig,
+	logger log.Logger,
+) error {
+	timeout, err := cmd.forwardTimeout(logger)
 	if err != nil {
 		return fmt.Errorf("parse forward ports timeout: %w", err)
 	}
 
-	errChan := make(chan error, len(cmd.ForwardPorts))
-	for _, portMapping := range cmd.ForwardPorts {
-		mapping, err := port.ParsePortSpec(portMapping)
-		if err != nil {
-			return fmt.Errorf("parse port mapping: %w", err)
-		}
+	parsedMappings, err := parsePortForwards(config.mappings)
+	if err != nil {
+		return err
+	}
+
+	errChan := make(chan error, len(parsedMappings))
+	var waitGroup sync.WaitGroup
+	for _, parsedMapping := range parsedMappings {
+		portMapping, mapping := parsedMapping.spec, parsedMapping.mapping
 
 		// start the forwarding
-		log.Infof(
-			"Forwarding local %s/%s to remote %s/%s",
+		logger.Infof(
+			config.logTemplate,
 			mapping.Host.Protocol,
 			mapping.Host.Address,
 			mapping.Container.Protocol,
 			mapping.Container.Address,
 		)
-		go func(portMapping string) {
-			err := devssh.PortForward(
+		waitGroup.Add(1)
+		go func(portMapping string, mapping port.Mapping) {
+			defer waitGroup.Done()
+
+			err := config.forwardFn(
 				ctx,
 				containerClient,
 				mapping.Host.Protocol,
@@ -417,18 +501,35 @@ func (cmd *SSHCmd) forwardPorts(
 				mapping.Container.Protocol,
 				mapping.Container.Address,
 				timeout,
-				log,
+				logger,
 			)
-			if !errors.Is(io.EOF, err) {
+			if err != nil && !errors.Is(err, io.EOF) {
 				errChan <- fmt.Errorf("error forwarding %s: %w", portMapping, err)
 			}
-		}(portMapping)
+		}(portMapping, mapping)
 	}
 
-	return <-errChan
+	go func() {
+		waitGroup.Wait()
+		close(errChan)
+	}()
+
+	for err := range errChan {
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
-func (cmd *SSHCmd) startTunnel(ctx context.Context, devPodConfig *config.Config, containerClient *ssh.Client, workspaceClient client2.BaseWorkspaceClient, log log.Logger) error {
+func (cmd *SSHCmd) startTunnel(
+	ctx context.Context,
+	devPodConfig *config.Config,
+	containerClient *ssh.Client,
+	workspaceClient client2.BaseWorkspaceClient,
+	log log.Logger,
+) error {
 	// check if we should forward ports
 	if len(cmd.ForwardPorts) > 0 {
 		return cmd.forwardPorts(ctx, containerClient, log)
@@ -440,21 +541,38 @@ func (cmd *SSHCmd) startTunnel(ctx context.Context, devPodConfig *config.Config,
 	}
 
 	if cmd.StartServices {
-		configureDockerCredentials := devPodConfig.ContextOption(config.ContextOptionSSHInjectDockerCredentials) == "true"
-		configureGitCredentials := devPodConfig.ContextOption(config.ContextOptionSSHInjectGitCredentials) == "true"
-		configureGitSSHSignatureHelper := devPodConfig.ContextOption(config.ContextOptionGitSSHSignatureForwarding) == "true"
+		configureDockerCredentials := devPodConfig.ContextOption(
+			config.ContextOptionSSHInjectDockerCredentials,
+		) == config.BoolTrue
+		configureGitCredentials := devPodConfig.ContextOption(
+			config.ContextOptionSSHInjectGitCredentials,
+		) == config.BoolTrue
+		configureGitSSHSignatureHelper := devPodConfig.ContextOption(
+			config.ContextOptionGitSSHSignatureForwarding,
+		) == config.BoolTrue
 
-		go cmd.startServices(ctx, devPodConfig, containerClient, workspaceClient.WorkspaceConfig(), configureDockerCredentials, configureGitCredentials, configureGitSSHSignatureHelper, log)
+		go cmd.startServices(
+			ctx,
+			devPodConfig,
+			containerClient,
+			workspaceClient.WorkspaceConfig(),
+			configureDockerCredentials,
+			configureGitCredentials,
+			configureGitSSHSignatureHelper,
+			cmd.GitSSHSigningKey,
+			log,
+		)
 	}
 	// start ssh
 	writer := log.ErrorStreamOnly().Writer(logrus.InfoLevel, false)
 	defer func() { _ = writer.Close() }()
 
 	// check if we should do gpg agent forwarding
-	if cmd.GPGAgentForwarding || devPodConfig.ContextOption(config.ContextOptionGPGAgentForwarding) == "true" {
+	if cmd.GPGAgentForwarding ||
+		devPodConfig.ContextOption(config.ContextOptionGPGAgentForwarding) == config.BoolTrue {
 		// Check if a forwarding is already enabled and running, in that case
 		// we skip the forwarding and keep using the original one
-		if gpg.IsGpgTunnelRunning(cmd.User, ctx, containerClient, log) {
+		if gpg.IsGpgTunnelRunning(ctx, cmd.User, containerClient, log) {
 			log.Debugf("[GPG] exporting already running, skipping")
 		} else {
 			err := cmd.setupGPGAgent(ctx, containerClient, log)
@@ -464,22 +582,28 @@ func (cmd *SSHCmd) startTunnel(ctx context.Context, devPodConfig *config.Config,
 		}
 	}
 
-	workdir := filepath.Join("/workspaces", workspaceClient.Workspace())
-	if cmd.WorkDir != "" {
-		workdir = cmd.WorkDir
-	}
+	workdir := resolveWorkdir(cmd.WorkDir, workspaceClient, log)
 
 	log.Debugf("Run outer container tunnel")
-	command := fmt.Sprintf("'%s' helper ssh-server --track-activity --stdio --workdir '%s'", agent.ContainerDevPodHelperLocation, workdir)
+	commandArgs := []string{
+		agent.ContainerDevPodHelperLocation,
+		"helper",
+		"ssh-server",
+		"--track-activity",
+		"--stdio",
+		"--workdir",
+		workdir,
+	}
 	if cmd.ReuseSSHAuthSock != "" {
 		log.Debug("Reusing SSH_AUTH_SOCK")
-		command += fmt.Sprintf(" --reuse-ssh-auth-sock=%s", cmd.ReuseSSHAuthSock)
+		commandArgs = append(commandArgs, "--reuse-ssh-auth-sock", cmd.ReuseSSHAuthSock)
 	}
 	if cmd.Debug {
-		command += " --debug"
+		commandArgs = append(commandArgs, "--debug")
 	}
+	command := shellescape.QuoteCommand(commandArgs)
 	if cmd.User != "" && cmd.User != "root" {
-		command = fmt.Sprintf("su -c \"%s\" '%s'", command, cmd.User)
+		command = shellescape.QuoteCommand([]string{"su", "-c", command, cmd.User})
 	}
 
 	envVars, err := cmd.retrieveEnVars()
@@ -489,8 +613,7 @@ func (cmd *SSHCmd) startTunnel(ctx context.Context, devPodConfig *config.Config,
 
 	// Traffic is coming in from the outside, we need to forward it to the container
 	if cmd.Stdio {
-		return devssh.Run(devssh.RunOptions{
-			Context: ctx,
+		return devssh.Run(ctx, devssh.RunOptions{
 			Client:  containerClient,
 			Command: command,
 			Stdin:   os.Stdin,
@@ -501,16 +624,19 @@ func (cmd *SSHCmd) startTunnel(ctx context.Context, devPodConfig *config.Config,
 	}
 
 	return machine.StartSSHSession(ctx, machine.StartSSHSessionOptions{
-		User:            cmd.User,
-		Command:         cmd.Command,
-		AgentForwarding: cmd.AgentForwarding && devPodConfig.ContextOption(config.ContextOptionSSHAgentForwarding) == "true",
-		SessionOptions:  machine.SSHSessionOptions{TermMode: cmd.TermMode, InstallTerminfo: cmd.InstallTerminfo},
+		User:    cmd.User,
+		Command: cmd.Command,
+		AgentForwarding: cmd.AgentForwarding &&
+			devPodConfig.ContextOption(config.ContextOptionSSHAgentForwarding) == config.BoolTrue,
+		SessionOptions: machine.SSHSessionOptions{
+			TermMode:        cmd.TermMode,
+			InstallTerminfo: cmd.InstallTerminfo,
+		},
 		Exec: func(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
 			if cmd.SSHKeepAliveInterval != DisableSSHKeepAlive {
 				go startSSHKeepAlive(ctx, containerClient, cmd.SSHKeepAliveInterval, log)
 			}
-			return devssh.Run(devssh.RunOptions{
-				Context: ctx,
+			return devssh.Run(ctx, devssh.RunOptions{
 				Client:  containerClient,
 				Command: command,
 				Stdin:   stdin,
@@ -523,12 +649,53 @@ func (cmd *SSHCmd) startTunnel(ctx context.Context, devPodConfig *config.Config,
 	})
 }
 
+func resolveWorkdir(
+	workdir string,
+	workspaceClient client2.BaseWorkspaceClient,
+	log log.Logger,
+) string {
+	if workdir != "" {
+		return workdir
+	}
+
+	if workspaceFolder := resolveMergedWorkspaceFolder(
+		workspaceClient,
+		log,
+	); workspaceFolder != "" {
+		return workspaceFolder
+	}
+
+	return path.Join("/workspaces", workspaceClient.Workspace())
+}
+
+func resolveMergedWorkspaceFolder(
+	workspaceClient client2.BaseWorkspaceClient,
+	log log.Logger,
+) string {
+	workspaceConfig := workspaceClient.WorkspaceConfig()
+	if workspaceConfig == nil || workspaceConfig.Context == "" || workspaceConfig.ID == "" {
+		return ""
+	}
+
+	result, err := provider.LoadWorkspaceResult(workspaceConfig.Context, workspaceConfig.ID)
+	if err != nil {
+		log.Debugf("Error loading workspace result for workdir resolution: %v", err)
+		return ""
+	}
+	if result == nil || result.MergedConfig == nil {
+		return ""
+	}
+
+	return result.MergedConfig.WorkspaceFolder
+}
+
 func (cmd *SSHCmd) startServices(
 	ctx context.Context,
 	devPodConfig *config.Config,
 	containerClient *ssh.Client,
 	workspace *provider.Workspace,
 	configureDockerCredentials, configureGitCredentials, configureGitSSHSignatureHelper bool,
+	gitSSHSigningKey string,
 	log log.Logger,
 ) {
 	if cmd.User != "" {
@@ -545,6 +712,7 @@ func (cmd *SSHCmd) startServices(
 				ConfigureDockerCredentials:     configureDockerCredentials,
 				ConfigureGitCredentials:        configureGitCredentials,
 				ConfigureGitSSHSignatureHelper: configureGitSSHSignatureHelper,
+				GitSSHSigningKey:               gitSSHSigningKey,
 				Log:                            log,
 			},
 		)
@@ -555,7 +723,7 @@ func (cmd *SSHCmd) startServices(
 }
 
 // setupGPGAgent will forward a local gpg-agent into the remote container
-// this works by using cmd/agent/workspace/setup_gpg
+// this works by using cmd/agent/workspace/setup_gpg.
 func (cmd *SSHCmd) setupGPGAgent(
 	ctx context.Context,
 	containerClient *ssh.Client,
@@ -580,12 +748,7 @@ func (cmd *SSHCmd) setupGPGAgent(
 	gpgExtraSocketPath := strings.TrimSpace(string(gpgExtraSocketBytes))
 	log.Debugf("[GPG] detected gpg-agent socket path %s", gpgExtraSocketPath)
 
-	gitGpgKey, err := exec.Command("git", []string{"config", "user.signingKey"}...).Output()
-	if err != nil {
-		log.Debugf("[GPG] no git signkey detected, skipping")
-	} else {
-		log.Debugf("[GPG] detected git sign key %s", gitGpgKey)
-	}
+	gitKey := gpgSigningKey(log)
 
 	cmd.ReverseForwardPorts = append(cmd.ReverseForwardPorts, gpgExtraSocketPath)
 
@@ -605,15 +768,14 @@ func (cmd *SSHCmd) setupGPGAgent(
 		forwardAgent = append(forwardAgent, "--debug")
 	}
 
-	if len(gitGpgKey) > 0 {
-		gitKey := strings.TrimSpace(string(gitGpgKey))
+	if gitKey != "" {
 		forwardAgent = append(forwardAgent, "--gitkey")
-		forwardAgent = append(forwardAgent, fmt.Sprintf("'%s'", gitKey))
+		forwardAgent = append(forwardAgent, gitKey)
 	}
 
-	command := strings.Join(forwardAgent, " ")
+	command := shellescape.QuoteCommand(forwardAgent)
 	if cmd.User != "" && cmd.User != "root" {
-		command = fmt.Sprintf("su -c \"%s\" '%s'", command, cmd.User)
+		command = shellescape.QuoteCommand([]string{"su", "-c", command, cmd.User})
 	}
 
 	log.Debugf(
@@ -627,8 +789,7 @@ func (cmd *SSHCmd) setupGPGAgent(
 
 	writer := log.ErrorStreamOnly().Writer(logrus.InfoLevel, false)
 	defer func() { _ = writer.Close() }()
-	err = devssh.Run(devssh.RunOptions{
-		Context: ctx,
+	err = devssh.Run(ctx, devssh.RunOptions{
 		Client:  containerClient,
 		Command: command,
 		Stdout:  writer,
@@ -641,7 +802,51 @@ func (cmd *SSHCmd) setupGPGAgent(
 	return nil
 }
 
-func startSSHKeepAlive(ctx context.Context, client *ssh.Client, interval time.Duration, log log.Logger) {
+// gpgSigningKey returns the user's GPG signing key from git config,
+// or empty string if no key is configured or the signing format is SSH
+// (SSH signing keys are handled by the separate SSH signature helper).
+func gpgSigningKey(log log.Logger) string {
+	format, err := exec.Command("git", "config", "--get", "gpg.format").Output()
+	formatStr := ""
+	if err == nil {
+		formatStr = strings.TrimSpace(string(format))
+	}
+	if formatStr == "ssh" {
+		log.Debugf(
+			"[GPG] gpg.format is ssh, skipping GPG signing key (handled by SSH signing helper)",
+		)
+		return ""
+	}
+
+	key, err := exec.Command("git", "config", "--get", "user.signingKey").Output()
+	if err != nil {
+		log.Debugf("[GPG] no git signkey detected, skipping")
+		return ""
+	}
+
+	result := strings.TrimSpace(string(key))
+
+	// GPG key IDs are hex fingerprints, not file paths. If the signing key
+	// looks like a file path and the format isn't x509 (which legitimately
+	// uses certificate file paths via gpgsm), it's an SSH key.
+	if (strings.HasPrefix(result, "/") || strings.HasPrefix(result, "~")) && formatStr != "x509" {
+		log.Debugf(
+			"[GPG] signing key %s looks like a file path, skipping (not a GPG key ID)",
+			result,
+		)
+		return ""
+	}
+
+	log.Debugf("[GPG] detected git sign key %s", result)
+	return result
+}
+
+func startSSHKeepAlive(
+	ctx context.Context,
+	client *ssh.Client,
+	interval time.Duration,
+	log log.Logger,
+) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

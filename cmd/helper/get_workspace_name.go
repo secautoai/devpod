@@ -14,7 +14,7 @@ type GetWorkspaceNameCommand struct {
 	*flags.GlobalFlags
 }
 
-// NewGetWorkspaceNameCmd creates a new command
+// NewGetWorkspaceNameCmd creates a new command.
 func NewGetWorkspaceNameCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &GetWorkspaceNameCommand{
 		GlobalFlags: flags,
@@ -22,8 +22,8 @@ func NewGetWorkspaceNameCmd(flags *flags.GlobalFlags) *cobra.Command {
 	shellCmd := &cobra.Command{
 		Use:   "get-workspace-name",
 		Short: "Retrieves a workspace name",
-		RunE: func(_ *cobra.Command, args []string) error {
-			return cmd.Run(context.Background(), args)
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			return cmd.Run(cobraCmd.Context(), args)
 		},
 	}
 

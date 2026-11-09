@@ -4,21 +4,20 @@ import (
 	"context"
 
 	"github.com/skevetter/devpod/cmd/flags"
-	"github.com/skevetter/devpod/pkg/client"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/workspace"
 	"github.com/skevetter/log"
 	"github.com/spf13/cobra"
 )
 
-// CreateCmd holds the configuration
+// CreateCmd holds the configuration.
 type CreateCmd struct {
 	*flags.GlobalFlags
 
 	ProviderOptions []string
 }
 
-// NewCreateCmd creates a new create command
+// NewCreateCmd creates a new create command.
 func NewCreateCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &CreateCmd{
 		GlobalFlags: flags,
@@ -26,27 +25,33 @@ func NewCreateCmd(flags *flags.GlobalFlags) *cobra.Command {
 	createCmd := &cobra.Command{
 		Use:   "create [name]",
 		Short: "Creates a new machine",
-		RunE: func(_ *cobra.Command, args []string) error {
-			return cmd.Run(context.Background(), args)
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			return cmd.Run(cobraCmd.Context(), args)
 		},
 	}
-	createCmd.Flags().StringSliceVar(&cmd.ProviderOptions, "provider-option", []string{}, "Provider option in the form KEY=VALUE")
+	createCmd.Flags().
+		StringSliceVar(&cmd.ProviderOptions, "provider-option", []string{}, "Provider option in the form KEY=VALUE")
 	return createCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *CreateCmd) Run(ctx context.Context, args []string) error {
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
 		return err
 	}
 
-	machineClient, err := workspace.ResolveMachine(devPodConfig, args, cmd.ProviderOptions, log.Default)
+	machineClient, err := workspace.ResolveMachine(
+		devPodConfig,
+		args,
+		cmd.ProviderOptions,
+		log.Default,
+	)
 	if err != nil {
 		return err
 	}
 
-	err = machineClient.Create(ctx, client.CreateOptions{})
+	err = machineClient.Create(ctx)
 	if err != nil {
 		return err
 	}

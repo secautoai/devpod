@@ -34,7 +34,7 @@ func PortForward(
 
 	return portForwarding(
 		ctx, client, listener,
-		localNetwork, localAddr, remoteNetwork, remoteAddr,
+		localAddr, remoteNetwork, remoteAddr,
 		exitAfterTimeout, log, forward,
 	)
 }
@@ -54,7 +54,7 @@ func ReversePortForward(
 
 	return portForwarding(
 		ctx, client, listener,
-		remoteNetwork, remoteAddr, localNetwork, localAddr,
+		remoteAddr, localNetwork, localAddr,
 		exitAfterTimeout, log, reverseForward,
 	)
 }
@@ -63,7 +63,7 @@ func portForwarding(
 	ctx context.Context,
 	client *ssh.Client,
 	listener net.Listener,
-	srcNetwork, srcAddr, dstNetwork, dstAddr string,
+	srcAddr, dstNetwork, dstAddr string,
 	exitAfterTimeout time.Duration,
 	log log.Logger,
 	forwardFn ForwardingFunction,
@@ -80,7 +80,10 @@ func portForwarding(
 	}()
 
 	counter := newConnectionCounter(ctx, exitAfterTimeout, func() {
-		log.Fatal("Stopping devpod up, because it stayed idle for a while. You can disable this via 'devpod context set-options -o EXIT_AFTER_TIMEOUT=false'")
+		log.Fatal(
+			"Stopping devpod up, because it stayed idle for a while. " +
+				"You can disable this via 'devpod context set-options -o EXIT_AFTER_TIMEOUT=false'",
+		)
 	}, srcAddr, log)
 	for {
 		// waiting for a new connection

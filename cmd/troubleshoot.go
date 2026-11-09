@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	managementv1 "github.com/loft-sh/api/v4/pkg/apis/management/v1"
+	managementv1 "github.com/skevetter/api/pkg/apis/management/v1"
 	"github.com/skevetter/devpod/cmd/completion"
 	"github.com/skevetter/devpod/cmd/flags"
 	"github.com/skevetter/devpod/cmd/provider"
@@ -37,7 +37,15 @@ func NewTroubleshootCmd(flags *flags.GlobalFlags) *cobra.Command {
 			cmd.Run(cobraCmd.Context(), args)
 		},
 		ValidArgsFunction: func(rootCmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			return completion.GetWorkspaceSuggestions(rootCmd, cmd.Context, cmd.Provider, args, toComplete, cmd.Owner, log.Default)
+			return completion.GetWorkspaceSuggestions(
+				rootCmd,
+				cmd.Context,
+				cmd.Provider,
+				args,
+				toComplete,
+				cmd.Owner,
+				log.Default,
+			)
 		},
 		Hidden: true,
 	}
@@ -47,7 +55,7 @@ func NewTroubleshootCmd(flags *flags.GlobalFlags) *cobra.Command {
 
 func (cmd *TroubleshootCmd) Run(ctx context.Context, args []string) {
 	// (ThomasK33): We're creating an anonymous struct here, so that we group
-	// everything and then we can serialize it in one call.
+	// everything so that we can serialize it in one call.
 	var info struct {
 		CLIVersion            string
 		Config                *config.Config
@@ -96,15 +104,26 @@ func (cmd *TroubleshootCmd) Run(ctx context.Context, args []string) {
 
 	info.DevPodProInstances, err = collectPlatformInfo(info.Config, logger)
 	if err != nil {
-		info.Errors = append(info.Errors, PrintableError{fmt.Errorf("collect platform info: %w", err)})
+		info.Errors = append(
+			info.Errors,
+			PrintableError{fmt.Errorf("collect platform info: %w", err)},
+		)
 	}
 
-	workspaceClient, err := workspace.Get(ctx, info.Config, args, false, cmd.Owner, false, logger)
+	workspaceClient, err := workspace.Get(ctx, workspace.GetOptions{
+		DevPodConfig: info.Config,
+		Args:         args,
+		Owner:        cmd.Owner,
+		Log:          logger,
+	})
 	if err == nil {
 		info.Workspace = workspaceClient.WorkspaceConfig()
 		info.WorkspaceStatus, err = workspaceClient.Status(ctx, client.StatusOptions{})
 		if err != nil {
-			info.Errors = append(info.Errors, PrintableError{fmt.Errorf("workspace status: %w", err)})
+			info.Errors = append(
+				info.Errors,
+				PrintableError{fmt.Errorf("workspace status: %w", err)},
+			)
 		}
 
 		if info.Workspace.Pro != nil {
@@ -129,7 +148,10 @@ func (cmd *TroubleshootCmd) Run(ctx context.Context, args []string) {
 					info.Workspace.Pro.Project,
 				)
 				if err != nil {
-					info.Errors = append(info.Errors, PrintableError{fmt.Errorf("collect pro workspace info: %w", err)})
+					info.Errors = append(
+						info.Errors,
+						PrintableError{fmt.Errorf("collect pro workspace info: %w", err)},
+					)
 				}
 			}
 		}
@@ -141,7 +163,10 @@ func (cmd *TroubleshootCmd) Run(ctx context.Context, args []string) {
 	if ok {
 		status, err := daemon.NewLocalClient(daemonClient.Provider()).Status(ctx, true)
 		if err != nil {
-			info.Errors = append(info.Errors, PrintableError{fmt.Errorf("get daemon status: %w", err)})
+			info.Errors = append(
+				info.Errors,
+				PrintableError{fmt.Errorf("get daemon status: %w", err)},
+			)
 		} else {
 			info.DaemonStatus = &status
 		}
@@ -164,7 +189,8 @@ func collectProWorkspaceInfo(
 		return nil, fmt.Errorf("init client from host: %w", err)
 	}
 
-	workspace, err := platform.FindInstanceInProject(ctx, baseClient, workspaceUID, project)
+	opts := platform.FindInstanceOptions{UID: workspaceUID, ProjectName: project}
+	workspace, err := platform.FindInstance(ctx, baseClient, opts)
 	if err != nil {
 		return nil, err
 	} else if workspace == nil {
@@ -190,7 +216,10 @@ func collectProWorkspaceInfo(
 
 // collectProviders collects and configures providers based on the given devPodConfig.
 // It returns a map of providers with their default settings and an error if any occurs.
-func collectProviders(devPodConfig *config.Config, logger log.Logger) (map[string]provider.ProviderWithDefault, error) {
+func collectProviders(
+	devPodConfig *config.Config,
+	logger log.Logger,
+) (map[string]provider.ProviderWithDefault, error) {
 	providers, err := workspace.LoadAllProviders(devPodConfig, logger)
 	if err != nil {
 		return nil, err
@@ -207,7 +236,10 @@ func collectProviders(devPodConfig *config.Config, logger log.Logger) (map[strin
 			continue
 		}
 
-		srcOptions := provider.MergeDynamicOptions(entry.Config.Options, configuredProviders[entry.Config.Name].DynamicOptions)
+		srcOptions := provider.MergeDynamicOptions(
+			entry.Config.Options,
+			configuredProviders[entry.Config.Name].DynamicOptions,
+		)
 		entry.Config.Options = srcOptions
 		retMap[k] = provider.ProviderWithDefault{
 			ProviderWithOptions: *entry,
@@ -228,7 +260,10 @@ type DevPodProInstance struct {
 // It iterates over the pro instances, retrieves their versions, and appends them to the ProInstance slice.
 // Any errors encountered during this process are combined and returned along with the ProInstance slice.
 // This means that even when an error value is returned, the pro instance slice will contain valid values.
-func collectPlatformInfo(devPodConfig *config.Config, logger log.Logger) ([]DevPodProInstance, error) {
+func collectPlatformInfo(
+	devPodConfig *config.Config,
+	logger log.Logger,
+) ([]DevPodProInstance, error) {
 	proInstanceList, err := workspace.ListProInstances(devPodConfig, logger)
 	if err != nil {
 		return nil, fmt.Errorf("list pro instances: %w", err)
@@ -238,7 +273,9 @@ func collectPlatformInfo(devPodConfig *config.Config, logger log.Logger) ([]DevP
 	var combinedErrs error
 
 	for _, proInstance := range proInstanceList {
-		version, err := platform.GetProInstanceDevPodVersion(&pkgprovider.ProInstance{Host: proInstance.Host})
+		version, err := platform.GetProInstanceDevPodVersion(
+			&pkgprovider.ProInstance{Host: proInstance.Host},
+		)
 		combinedErrs = errors.Join(combinedErrs, err)
 		proInstances = append(proInstances, DevPodProInstance{
 			Host:         proInstance.Host,

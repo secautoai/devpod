@@ -17,7 +17,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// UseCmd holds the use cmd flags
+// UseCmd holds the use cmd flags.
 type UseCmd struct {
 	*flags.GlobalFlags
 
@@ -29,7 +29,7 @@ type UseCmd struct {
 	SkipInit bool
 }
 
-// NewUseCmd creates a new command
+// NewUseCmd creates a new command.
 func NewUseCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &UseCmd{
 		GlobalFlags: flags,
@@ -37,15 +37,23 @@ func NewUseCmd(flags *flags.GlobalFlags) *cobra.Command {
 	useCmd := &cobra.Command{
 		Use:   "use [name]",
 		Short: "Configure an existing provider and set as default",
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return fmt.Errorf("please specify the provider to use")
 			}
 
-			return cmd.Run(context.Background(), args[0])
+			return cmd.Run(cobraCmd.Context(), args[0])
 		},
 		ValidArgsFunction: func(rootCmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			return completion.GetProviderSuggestions(rootCmd, cmd.Context, cmd.Provider, args, toComplete, cmd.Owner, log.Default)
+			return completion.GetProviderSuggestions(
+				rootCmd,
+				cmd.Context,
+				cmd.Provider,
+				args,
+				toComplete,
+				cmd.Owner,
+				log.Default,
+			)
 		},
 	}
 
@@ -54,15 +62,19 @@ func NewUseCmd(flags *flags.GlobalFlags) *cobra.Command {
 }
 
 func AddFlags(useCmd *cobra.Command, cmd *UseCmd) {
-	useCmd.Flags().BoolVar(&cmd.SingleMachine, "single-machine", false, "If enabled will use a single machine for all workspaces")
-	useCmd.Flags().BoolVar(&cmd.Reconfigure, "reconfigure", false, "If enabled will not merge existing provider config")
-	useCmd.Flags().StringArrayVarP(&cmd.Options, "option", "o", []string{}, "Provider option in the form KEY=VALUE")
+	useCmd.Flags().
+		BoolVar(&cmd.SingleMachine, "single-machine", false, "If enabled will use a single machine for all workspaces")
+	useCmd.Flags().
+		BoolVar(&cmd.Reconfigure, "reconfigure", false, "If enabled will not merge existing provider config")
+	useCmd.Flags().
+		StringArrayVarP(&cmd.Options, "option", "o", []string{}, "Provider option in the form KEY=VALUE")
 
-	useCmd.Flags().BoolVar(&cmd.SkipInit, "skip-init", false, "ONLY FOR TESTING: If true will skip init")
+	useCmd.Flags().
+		BoolVar(&cmd.SkipInit, "skip-init", false, "ONLY FOR TESTING: If true will skip init")
 	_ = useCmd.Flags().MarkHidden("skip-init")
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *UseCmd) Run(ctx context.Context, providerName string) error {
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
@@ -75,11 +87,26 @@ func (cmd *UseCmd) Run(ctx context.Context, providerName string) error {
 	}
 
 	// should reconfigure?
-	shouldReconfigure := cmd.Reconfigure || len(cmd.Options) > 0 || providerWithOptions.State == nil || cmd.SingleMachine
+	shouldReconfigure := cmd.Reconfigure || len(cmd.Options) > 0 ||
+		providerWithOptions.State == nil ||
+		cmd.SingleMachine
 	if shouldReconfigure {
-		return ConfigureProvider(ctx, providerWithOptions.Config, devPodConfig.DefaultContext, cmd.Options, cmd.Reconfigure, cmd.SkipInit, false, &cmd.SingleMachine, log.Default)
+		return ConfigureProvider(ctx, ProviderOptionsConfig{
+			Provider:       providerWithOptions.Config,
+			Context:        devPodConfig.DefaultContext,
+			UserOptions:    cmd.Options,
+			Reconfigure:    cmd.Reconfigure,
+			SkipRequired:   false,
+			SkipInit:       cmd.SkipInit,
+			SkipSubOptions: false,
+			SingleMachine:  &cmd.SingleMachine,
+			Log:            log.Default,
+		})
 	} else {
-		log.Default.Infof("To reconfigure provider %s, run with '--reconfigure' to reconfigure the provider", providerWithOptions.Config.Name)
+		log.Default.Infof(
+			"To reconfigure provider %s, run with '--reconfigure' to reconfigure the provider",
+			providerWithOptions.Config.Name,
+		)
 	}
 
 	// set options
@@ -93,22 +120,31 @@ func (cmd *UseCmd) Run(ctx context.Context, providerName string) error {
 	}
 
 	// print success message
-	log.WithFields(logrus.Fields{
-		"providerName": providerWithOptions.Config.Name,
-	}).Done("switched default provider")
+	log.Default.Donef("switched default provider: providerName=%s", providerWithOptions.Config.Name)
 	return nil
 }
 
-func ConfigureProvider(ctx context.Context, provider *provider2.ProviderConfig, context string, userOptions []string, reconfigure, skipInit, skipSubOptions bool, singleMachine *bool, log log.Logger) error {
-	// set options
-	devPodConfig, err := setOptions(ctx, provider, context, userOptions, reconfigure, false, skipInit, skipSubOptions, singleMachine, log)
+type ProviderOptionsConfig struct {
+	Provider       *provider2.ProviderConfig
+	Context        string
+	UserOptions    []string
+	Reconfigure    bool
+	SkipRequired   bool
+	SkipInit       bool
+	SkipSubOptions bool
+	SingleMachine  *bool
+	Log            log.Logger
+}
+
+func ConfigureProvider(ctx context.Context, cfg ProviderOptionsConfig) error {
+	devPodConfig, err := configureProviderOptions(ctx, cfg)
 	if err != nil {
 		return err
 	}
 
 	// set options
 	defaultContext := devPodConfig.Current()
-	defaultContext.DefaultProvider = provider.Name
+	defaultContext.DefaultProvider = cfg.Provider.Name
 
 	// save provider config
 	err = config.SaveConfig(devPodConfig)
@@ -116,66 +152,65 @@ func ConfigureProvider(ctx context.Context, provider *provider2.ProviderConfig, 
 		return fmt.Errorf("save config: %w", err)
 	}
 
-	log.WithFields(logrus.Fields{
-		"providerName": provider.Name,
-	}).Done("configured provider")
+	cfg.Log.Donef("configured provider %s", cfg.Provider.Name)
 	return nil
 }
 
-func setOptions(
+func mergeExistingOptions(
+	options map[string]string,
+	existingOptions map[string]config.OptionValue,
+) {
+	for k, v := range existingOptions {
+		if _, ok := options[k]; !ok && v.UserProvided {
+			options[k] = v.Value
+		}
+	}
+}
+
+func configureProviderOptions(
 	ctx context.Context,
-	provider *provider2.ProviderConfig,
-	context string,
-	userOptions []string,
-	reconfigure,
-	skipRequired,
-	skipInit,
-	skipSubOptions bool,
-	singleMachine *bool,
-	log log.Logger,
+	cfg ProviderOptionsConfig,
 ) (*config.Config, error) {
-	devPodConfig, err := config.LoadConfig(context, "")
+	devPodConfig, err := config.LoadConfig(cfg.Context, "")
 	if err != nil {
 		return nil, err
 	}
 
-	userOptions = options2.InheritOptionsFromEnvironment(
-		userOptions,
-		provider.Options,
-		"DEVPOD_PROVIDER_"+provider.Name+"_",
+	cfg.UserOptions = options2.InheritOptionsFromEnvironment(
+		cfg.UserOptions,
+		cfg.Provider.Options,
+		config.EnvProviderPrefix+cfg.Provider.Name+"_",
 	)
 
 	// parse options
-	options, err := provider2.ParseOptions(userOptions)
+	options, err := provider2.ParseOptions(cfg.UserOptions)
 	if err != nil {
 		return nil, fmt.Errorf("parse options: %w", err)
 	}
 
 	// merge with old values
-	if !reconfigure {
-		for k, v := range devPodConfig.ProviderOptions(provider.Name) {
-			_, ok := options[k]
-			if !ok && v.UserProvided {
-				options[k] = v.Value
-			}
-		}
+	if !cfg.Reconfigure {
+		mergeExistingOptions(options, devPodConfig.ProviderOptions(cfg.Provider.Name))
 	}
 
 	// fill defaults
-	devPodConfig, err = options2.ResolveOptions(ctx, devPodConfig, provider, options, skipRequired, skipSubOptions, singleMachine, log)
+	devPodConfig, err = options2.ResolveOptions(
+		ctx, devPodConfig, cfg.Provider, options,
+		cfg.SkipRequired, cfg.SkipSubOptions, cfg.SingleMachine, cfg.Log,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("resolve options: %w", err)
 	}
 
 	// run init command
-	if !skipInit {
-		stdout := log.Writer(logrus.InfoLevel, false)
+	if !cfg.SkipInit {
+		stdout := cfg.Log.Writer(logrus.InfoLevel, false)
 		defer func() { _ = stdout.Close() }()
 
-		stderr := log.Writer(logrus.ErrorLevel, false)
+		stderr := cfg.Log.Writer(logrus.ErrorLevel, false)
 		defer func() { _ = stderr.Close() }()
 
-		err = initProvider(ctx, devPodConfig, provider, stdout, stderr)
+		err = initProvider(ctx, devPodConfig, cfg.Provider, stdout, stderr)
 		if err != nil {
 			return nil, err
 		}
@@ -184,8 +219,12 @@ func setOptions(
 	return devPodConfig, nil
 }
 
-func initProvider(ctx context.Context, devPodConfig *config.Config, provider *provider2.ProviderConfig, stdout, stderr io.Writer) error {
-	// run init command
+func initProvider(
+	ctx context.Context,
+	devPodConfig *config.Config,
+	provider *provider2.ProviderConfig,
+	stdout, stderr io.Writer,
+) error {
 	err := clientimplementation.RunCommandWithBinaries(clientimplementation.CommandOptions{
 		Ctx:     ctx,
 		Name:    "init",

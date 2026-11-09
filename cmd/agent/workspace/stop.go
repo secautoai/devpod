@@ -11,14 +11,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// StopCmd holds the cmd flags
+// StopCmd holds the cmd flags.
 type StopCmd struct {
 	*flags.GlobalFlags
 
 	WorkspaceInfo string
 }
 
-// NewStopCmd creates a new command
+// NewStopCmd creates a new command.
 func NewStopCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &StopCmd{
 		GlobalFlags: flags,
@@ -27,8 +27,8 @@ func NewStopCmd(flags *flags.GlobalFlags) *cobra.Command {
 		Use:   "stop",
 		Short: "Stops a workspace on the remote server",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return cmd.Run(context.Background())
+		RunE: func(cobraCmd *cobra.Command, _ []string) error {
+			return cmd.Run(cobraCmd.Context())
 		},
 	}
 	stopCmd.Flags().StringVar(&cmd.WorkspaceInfo, "workspace-info", "", "The workspace info")
@@ -38,7 +38,10 @@ func NewStopCmd(flags *flags.GlobalFlags) *cobra.Command {
 
 func (cmd *StopCmd) Run(ctx context.Context) error {
 	// get workspace
-	shouldExit, workspaceInfo, err := agent.WriteWorkspaceInfo(cmd.WorkspaceInfo, log.Default.ErrorStreamOnly())
+	shouldExit, workspaceInfo, err := agent.WriteWorkspaceInfo(
+		cmd.WorkspaceInfo,
+		log.Default.ErrorStreamOnly(),
+	)
 	if err != nil {
 		return fmt.Errorf("error parsing workspace info: %w", err)
 	} else if shouldExit {
@@ -54,7 +57,11 @@ func (cmd *StopCmd) Run(ctx context.Context) error {
 	return nil
 }
 
-func stopContainer(ctx context.Context, workspaceInfo *provider2.AgentWorkspaceInfo, log log.Logger) error {
+func stopContainer(
+	ctx context.Context,
+	workspaceInfo *provider2.AgentWorkspaceInfo,
+	log log.Logger,
+) error {
 	log.Debugf("stopping DevPod container")
 	runner, err := CreateRunner(workspaceInfo, log)
 	if err != nil {

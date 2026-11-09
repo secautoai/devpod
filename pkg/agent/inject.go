@@ -11,7 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/skevetter/devpod/pkg/config"
+	"github.com/skevetter/devpod/pkg/docker"
 	"github.com/skevetter/devpod/pkg/inject"
 	"github.com/skevetter/devpod/pkg/shell"
 	"github.com/skevetter/devpod/pkg/version"
@@ -116,9 +117,19 @@ func (o *InjectOptions) applyURLDefaults() {
 		o.DownloadURL = DefaultAgentDownloadURL()
 	}
 
-	if strings.Contains(o.DownloadURL, "github.com") && strings.Contains(o.DownloadURL, "/releases/tag/") {
-		normalizedDownloadUrl := strings.Replace(o.DownloadURL, "/releases/tag/", "/releases/download/", 1)
-		o.Log.Warnf("download URL %s is a tag URL, normalizing to download URL %s", o.DownloadURL, normalizedDownloadUrl)
+	if strings.Contains(o.DownloadURL, "github.com") &&
+		strings.Contains(o.DownloadURL, "/releases/tag/") {
+		normalizedDownloadUrl := strings.Replace(
+			o.DownloadURL,
+			"/releases/tag/",
+			"/releases/download/",
+			1,
+		)
+		o.Log.Warnf(
+			"download URL %s is a tag URL, normalizing to download URL %s",
+			o.DownloadURL,
+			normalizedDownloadUrl,
+		)
 		o.DownloadURL = normalizedDownloadUrl
 	}
 }
@@ -129,9 +140,9 @@ func (o *InjectOptions) applyPreferDownloadDefaults() {
 	}
 
 	isDefaultURL := o.DownloadURL == DefaultAgentDownloadURL()
-	hasCustomAgentURL := os.Getenv(EnvDevPodAgentURL) != "" || !isDefaultURL
+	hasCustomAgentURL := os.Getenv(config.EnvAgentURL) != "" || !isDefaultURL
 
-	preferDownloadEnv := os.Getenv(EnvDevPodAgentPreferDownload)
+	preferDownloadEnv := os.Getenv(config.EnvAgentPreferDownload)
 	switch {
 	case preferDownloadEnv != "":
 		o.applyEnvPreference(preferDownloadEnv)
@@ -149,7 +160,7 @@ func (o *InjectOptions) applyPreferDownloadDefaults() {
 func (o *InjectOptions) applyEnvPreference(preferDownloadEnv string) {
 	pref, err := strconv.ParseBool(preferDownloadEnv)
 	if err != nil {
-		o.Log.Warnf("failed to parse %s, using default", EnvDevPodAgentPreferDownload)
+		o.Log.Warnf("failed to parse %s, using default", config.EnvAgentPreferDownload)
 		pref = true
 	}
 	o.PreferDownloadFromRemoteUrl = Bool(pref)
@@ -180,6 +191,10 @@ func InjectAgent(opts *InjectOptions) error {
 	opts.Log.Debug("starting agent injection")
 	return retry.OnError(backoff, func(err error) bool {
 		if opts.Ctx.Err() != nil {
+			return false
+		}
+		if errors.Is(err, docker.ErrContainerTerminal) {
+			opts.Log.Errorf("container entered a terminal state, not retrying: %v", err)
 			return false
 		}
 		opts.Log.Debugf("retrying injection: %v", err)
@@ -226,7 +241,6 @@ func injectAgent(ctx *injectContext) error {
 		Timeout:      opts.Timeout,
 		Log:          opts.Log,
 	})
-
 	if err != nil {
 		return handleInjectError(err, wasExecuted, buf)
 	}
@@ -276,7 +290,12 @@ func handleInjectError(err error, wasExecuted bool, buf *bytes.Buffer) error {
 func performVersionCheck(ctx *injectContext) error {
 	opts := ctx.opts
 
-	detectedVersion, err := ctx.vc.detectRemoteAgentVersion(opts.Ctx, opts.Exec, opts.RemoteAgentPath, opts.Log)
+	detectedVersion, err := ctx.vc.detectRemoteAgentVersion(
+		opts.Ctx,
+		opts.Exec,
+		opts.RemoteAgentPath,
+		opts.Log,
+	)
 
 	if !opts.SkipVersionCheck {
 		if err != nil {
@@ -358,13 +377,10 @@ func (vc *versionChecker) detectRemoteAgentVersion(
 	}
 
 	if actualVersion != vc.remoteVersion {
-		log.WithFields(logrus.Fields{
-			"expectedVersion": vc.remoteVersion,
-			"actualVersion":   actualVersion,
-			"agentPath":       agentPath,
-		}).Warn("the remote agent version does not match the expected version. " +
-			"If your workspace fails to deploy, you may need to manually remove " +
-			"the existing agent and redeploy.")
+		log.Warnf("the remote agent version does not match the expected version. "+
+			"If your workspace fails to deploy, you may need to manually remove "+
+			"the existing agent and redeploy: expectedVersion=%s, actualVersion=%s, agentPath=%s",
+			vc.remoteVersion, actualVersion, agentPath)
 	} else {
 		log.Debug("remote agent version matches expected version")
 	}

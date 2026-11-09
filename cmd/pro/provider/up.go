@@ -8,20 +8,19 @@ import (
 	"os"
 
 	"github.com/sirupsen/logrus"
+	managementv1 "github.com/skevetter/api/pkg/apis/management/v1"
+	storagev1 "github.com/skevetter/api/pkg/apis/storage/v1"
 	"github.com/skevetter/devpod/cmd/pro/flags"
-	"github.com/skevetter/devpod/pkg/client/clientimplementation"
+	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/platform"
 	"github.com/skevetter/devpod/pkg/platform/client"
 	"github.com/skevetter/devpod/pkg/platform/remotecommand"
 	"github.com/skevetter/log"
 	"github.com/spf13/cobra"
-
-	managementv1 "github.com/loft-sh/api/v4/pkg/apis/management/v1"
-	storagev1 "github.com/loft-sh/api/v4/pkg/apis/storage/v1"
 	corev1 "k8s.io/api/core/v1"
 )
 
-// UpCmd holds the cmd flags:
+// UpCmd holds the cmd flags:.
 type UpCmd struct {
 	*flags.GlobalFlags
 
@@ -35,10 +34,10 @@ type streams struct {
 	Stderr io.Writer
 }
 
-// NewUpCmd creates a new command
+// NewUpCmd creates a new command.
 func NewUpCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	logLevel := logrus.InfoLevel
-	if os.Getenv(clientimplementation.DevPodDebug) == "true" || globalFlags.Debug {
+	if os.Getenv(config.EnvDebug) == config.BoolTrue || globalFlags.Debug {
 		logLevel = logrus.DebugLevel
 	}
 
@@ -76,11 +75,16 @@ func (cmd *UpCmd) Run(ctx context.Context) error {
 		return err
 	}
 
-	instance, err := platform.FindInstanceInProject(ctx, baseClient, info.UID, info.ProjectName)
+	opts := platform.FindInstanceOptions{UID: info.UID, ProjectName: info.ProjectName}
+	instance, err := platform.FindInstance(ctx, baseClient, opts)
 	if err != nil {
 		return err
 	} else if instance == nil {
-		return fmt.Errorf("workspace %s not found in project %s. Looks like it does not exist anymore and you can delete it", info.ID, info.ProjectName)
+		return fmt.Errorf(
+			"workspace %s not found in project %s. Looks like it does not exist anymore and you can delete it",
+			info.ID,
+			info.ProjectName,
+		)
 	}
 
 	// Log current workspace information. This is both useful to the user to understand the workspace configuration
@@ -102,10 +106,14 @@ func (cmd *UpCmd) Run(ctx context.Context) error {
 	return cmd.up(ctx, instance, baseClient)
 }
 
-func (cmd *UpCmd) up(ctx context.Context, workspace *managementv1.DevPodWorkspaceInstance, client client.Client) error {
+func (cmd *UpCmd) up(
+	ctx context.Context,
+	workspace *managementv1.DevPodWorkspaceInstance,
+	client client.Client,
+) error {
 	options := platform.OptionsFromEnv(storagev1.DevPodFlagsUp)
-	if options != nil && os.Getenv("DEBUG") == "true" {
-		options.Add("debug", "true")
+	if options != nil && os.Getenv(config.EnvDebug) == config.BoolTrue {
+		options.Add("debug", config.BoolTrue)
 	}
 
 	conn, err := platform.DialInstance(client, workspace, "up", options, cmd.Log)
@@ -113,7 +121,14 @@ func (cmd *UpCmd) up(ctx context.Context, workspace *managementv1.DevPodWorkspac
 		return err
 	}
 
-	_, err = remotecommand.ExecuteConn(ctx, conn, cmd.streams.Stdin, cmd.streams.Stdout, cmd.streams.Stderr, cmd.Log)
+	_, err = remotecommand.ExecuteConn(
+		ctx,
+		conn,
+		cmd.streams.Stdin,
+		cmd.streams.Stdout,
+		cmd.streams.Stderr,
+		cmd.Log,
+	)
 	if err != nil {
 		return fmt.Errorf("error executing: %w", err)
 	}

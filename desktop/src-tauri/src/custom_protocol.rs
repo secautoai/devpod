@@ -5,17 +5,17 @@ use crate::ui_messages::{
 #[cfg(target_os = "linux")]
 use crate::ui_messages::{ShowToastMsg, ToastStatus};
 use crate::AppState;
-use log::{error, info, warn};
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 #[cfg(target_os = "linux")]
 use std::env;
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_deep_link::DeepLinkExt;
 use thiserror::Error;
 use url::Url;
 
 // Should match the one from "tauri.config.json" and "Info.plist"
 const APP_IDENTIFIER: &str = "sh.loft.devpod";
-const APP_URL_SCHEME: &str = "devpod";
 
 pub struct CustomProtocol;
 
@@ -155,9 +155,36 @@ impl ProHandler {
     }
 }
 
+async fn handle_deep_link_url(app_handle: &AppHandle, url: &url::Url) {
+    info!("App opened with URL: {:?}", url.to_string());
+
+    let request = UrlParser::parse(&url.to_string());
+    let app_state = app_handle.state::<AppState>();
+    if let Err(err) = request {
+        warn!("Failed to broadcast custom protocol message: {:?}", err);
+        return;
+    }
+    let request = request.unwrap();
+
+    match request.host.as_str() {
+        "open" => {
+            let msg = CustomProtocol::parse(&request);
+            OpenHandler::handle(msg, app_state).await
+        }
+        "import" => {
+            let msg = CustomProtocol::parse(&request);
+            ImportHandler::handle(msg, app_state).await
+        }
+        "pro" => {
+            let msg = CustomProtocol::parse(&request);
+            ProHandler::handle(msg, app_state).await
+        }
+        _ => {}
+    }
+}
+
 impl CustomProtocol {
-    pub fn init() -> Self {
-        tauri_plugin_deep_link::prepare(APP_IDENTIFIER);
+    pub fn new() -> Self {
         Self {}
     }
 
@@ -211,37 +238,37 @@ impl CustomProtocol {
     }
 
     pub fn setup(&self, app: AppHandle) {
+        // Handle URLs from cold-start (app launched via deep link)
+        if let Ok(Some(urls)) = app.deep_link().get_current() {
+            let app_handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                for url in urls {
+                    handle_deep_link_url(&app_handle, &url).await;
+                }
+            });
+        }
+
+        // Handle URLs received while the app is running
         let app_handle = app.clone();
-
-        let result = tauri_plugin_deep_link::register(APP_URL_SCHEME, move |url_scheme| {
-            tauri::async_runtime::block_on(async {
-                info!("App opened with URL: {:?}", url_scheme.to_string());
-
-                let request = UrlParser::parse(&url_scheme.to_string());
-                let app_state = app_handle.state::<AppState>();
-                if let Err(err) = request {
-                    warn!("Failed to broadcast custom protocol message: {:?}", err);
-                    return;
-                }
-                let request = request.unwrap();
-
-                match request.host.as_str() {
-                    "open" => {
-                        let msg = CustomProtocol::parse(&request);
-                        OpenHandler::handle(msg, app_state).await
-                    }
-                    "import" => {
-                        let msg = CustomProtocol::parse(&request);
-                        ImportHandler::handle(msg, app_state).await
-                    }
-                    "pro" => {
-                        let msg = CustomProtocol::parse(&request);
-                        ProHandler::handle(msg, app_state).await
-                    }
-                    _ => {}
-                }
-            })
+        app.deep_link().on_open_url(move |event| {
+            for url_scheme in event.urls() {
+                let app_handle = app_handle.clone();
+                tauri::async_runtime::block_on(async {
+                    handle_deep_link_url(&app_handle, &url_scheme).await;
+                });
+            }
         });
+
+        // Register all configured URL schemes at runtime (Linux/Windows only; macOS uses Info.plist)
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        let result = app.deep_link().register_all();
+
+        #[cfg(target_os = "windows")]
+        {
+            if let Err(error) = result {
+                log::warn!("Custom protocol setup failed on Windows: {}", error);
+            }
+        }
 
         #[cfg(target_os = "linux")]
         {
@@ -277,8 +304,6 @@ impl CustomProtocol {
                 }
             };
         }
-
-        let _ = result;
     }
 
     fn parse<'a, Msg>(request: &'a Request) -> Result<Msg, ParseError>

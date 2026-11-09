@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	pkgconfig "github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/devcontainer/config"
 	"github.com/skevetter/devpod/pkg/driver"
 	provider2 "github.com/skevetter/devpod/pkg/provider"
@@ -18,16 +19,18 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-const DevContainerName = "devpod"
-const InitContainerName = "devpod-init"
+const (
+	DevContainerName  = pkgconfig.BinaryName
+	InitContainerName = pkgconfig.BinaryName + "-init"
+)
 
 const (
-	DevPodCreatedLabel      = "devpod.sh/created"
-	DevPodWorkspaceLabel    = "devpod.sh/workspace"
-	DevPodWorkspaceUIDLabel = "devpod.sh/workspace-uid"
+	DevPodCreatedLabel      = pkgconfig.BinaryName + ".sh/created"
+	DevPodWorkspaceLabel    = pkgconfig.BinaryName + ".sh/workspace"
+	DevPodWorkspaceUIDLabel = pkgconfig.BinaryName + ".sh/workspace-uid"
 
-	DevPodInfoAnnotation                   = "devpod.sh/info"
-	DevPodLastAppliedAnnotation            = "devpod.sh/last-applied-configuration"
+	DevPodInfoAnnotation                   = pkgconfig.BinaryName + ".sh/info"
+	DevPodLastAppliedAnnotation            = pkgconfig.BinaryName + ".sh/last-applied-configuration"
 	ClusterAutoscalerSaveToEvictAnnotation = "cluster-autoscaler.kubernetes.io/safe-to-evict"
 )
 
@@ -49,7 +52,7 @@ func (k *KubernetesDriver) RunDevContainer(
 	workspaceId = getID(workspaceId)
 
 	// namespace
-	if k.namespace != "" && k.options.CreateNamespace == "true" {
+	if k.namespace != "" && k.options.CreateNamespace == pkgconfig.BoolTrue {
 		err := k.createNamespace(ctx)
 		if err != nil {
 			return err
@@ -63,7 +66,10 @@ func (k *KubernetesDriver) RunDevContainer(
 		return err
 	} else if pvc == nil {
 		if options == nil {
-			return fmt.Errorf("no options provided and no persistent volume claim found for workspace '%s'", workspaceId)
+			return fmt.Errorf(
+				"no options provided and no persistent volume claim found for workspace '%s'",
+				workspaceId,
+			)
 		}
 
 		// create persistent volume claim
@@ -106,7 +112,12 @@ func (k *KubernetesDriver) runContainer(
 		if err != nil {
 			k.Log.Warn("Relative filepath: %v", err)
 		} else if strings.HasPrefix(rel, "..") {
-			k.Log.Warnf("Workspace volume mount needs to be the same as the workspace mount or a parent, skipping option. WorkspaceVolumeMount: %s, MountTarget: %s", k.options.WorkspaceVolumeMount, mount.Target)
+			k.Log.Warnf(
+				"Workspace volume mount needs to be the same as the workspace mount or a parent, skipping option. "+
+					"WorkspaceVolumeMount: %s, MountTarget: %s",
+				k.options.WorkspaceVolumeMount,
+				mount.Target,
+			)
 		} else {
 			mount.Target = k.options.WorkspaceVolumeMount
 			k.Log.Debugf("Using workspace volume mount: %s", k.options.WorkspaceVolumeMount)
@@ -140,7 +151,11 @@ func (k *KubernetesDriver) runContainer(
 		if mount.Type == "bind" || mount.Type == "volume" {
 			volumeMounts = append(volumeMounts, volumeMount)
 		} else {
-			k.Log.Warnf("Unsupported mount type '%s' in mount '%s', will skip", mount.Type, mount.String())
+			k.Log.Warnf(
+				"Unsupported mount type '%s' in mount '%s', will skip",
+				mount.Type,
+				mount.String(),
+			)
 		}
 	}
 
@@ -158,7 +173,7 @@ func (k *KubernetesDriver) runContainer(
 	daemonConfig := ""
 	for k, v := range options.Env {
 		// filter out daemon config, that's going to be mounted through a secret
-		if k == config.WorkspaceDaemonConfigExtraEnvVar {
+		if k == pkgconfig.EnvWorkspaceDaemonConfig {
 			daemonConfig = v
 			continue
 		}
@@ -214,7 +229,8 @@ func (k *KubernetesDriver) runContainer(
 
 	// ensure pull secrets
 	pullSecretsCreated := false
-	if k.options.KubernetesPullSecretsEnabled == "true" && k.agentConfig.InjectDockerCredentials == "true" {
+	if k.options.KubernetesPullSecretsEnabled == pkgconfig.BoolTrue &&
+		k.agentConfig.InjectDockerCredentials == pkgconfig.BoolTrue {
 		pullSecretsCreated, err = k.EnsurePullSecret(ctx, getPullSecretsName(id), options.Image)
 		if err != nil {
 			return err
@@ -228,7 +244,19 @@ func (k *KubernetesDriver) runContainer(
 	pod.Spec.ServiceAccountName = serviceAccount
 	pod.Spec.NodeSelector = nodeSelector
 	pod.Spec.InitContainers = initContainers
-	pod.Spec.Containers = getContainers(pod, options.Image, options.Entrypoint, options.Cmd, envVars, volumeMounts, capabilities, resources, options.Privileged, k.options.StrictSecurity, daemonConfigSecretName)
+	pod.Spec.Containers = getContainers(
+		pod,
+		options.Image,
+		options.Entrypoint,
+		options.Cmd,
+		envVars,
+		volumeMounts,
+		capabilities,
+		resources,
+		options.Privileged,
+		k.options.StrictSecurity,
+		daemonConfigSecretName,
+	)
 	pod.Spec.Volumes = getVolumes(pod, id, daemonConfigSecretName)
 	// avoids a problem where attaching volumes with large repositories would cause an extremely long pod startup time
 	// because changing the ownership of all files takes longer than the kubelet expects it to
@@ -237,7 +265,7 @@ func (k *KubernetesDriver) runContainer(
 			FSGroupChangePolicy: ptr.To(corev1.FSGroupChangeOnRootMismatch),
 		}
 	}
-	if k.options.KubernetesPullSecretsEnabled == "true" && pullSecretsCreated {
+	if k.options.KubernetesPullSecretsEnabled == pkgconfig.BoolTrue && pullSecretsCreated {
 		pod.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{Name: getPullSecretsName(id)}}
 	}
 	pod.Spec.RestartPolicy = corev1.RestartPolicyNever
@@ -249,14 +277,20 @@ func (k *KubernetesDriver) runContainer(
 
 	if existingPod != nil {
 		existingOptions := &provider2.ProviderKubernetesDriverConfig{}
-		err := json.Unmarshal([]byte(existingPod.GetAnnotations()[DevPodLastAppliedAnnotation]), existingOptions)
+		err := json.Unmarshal(
+			[]byte(existingPod.GetAnnotations()[DevPodLastAppliedAnnotation]),
+			existingOptions,
+		)
 		if err != nil {
 			k.Log.Errorf("Error unmarshalling existing provider options, continuing...: %s", err)
 		}
 
 		// Nothing changed, can safely return
 		if optionsEqual(existingOptions, k.options) {
-			k.Log.Infof("Pod '%s' already exists and nothing changed, skipping update", existingPod.Name)
+			k.Log.Infof(
+				"Pod '%s' already exists and nothing changed, skipping update",
+				existingPod.Name,
+			)
 			return nil
 		}
 
@@ -331,8 +365,8 @@ func getContainers(
 ) []corev1.Container {
 	if daemonConfigSecretName != "" {
 		volumeMounts = append(volumeMounts, corev1.VolumeMount{
-			Name:      "devpod-daemon-config",
-			MountPath: "/var/run/secrets/devpod",
+			Name:      DevContainerName + "-daemon-config",
+			MountPath: "/var/run/secrets/" + DevContainerName,
 		})
 	}
 	devPodContainer := corev1.Container{
@@ -352,7 +386,7 @@ func getContainers(
 		},
 	}
 
-	if strictSecurity == "true" {
+	if strictSecurity == pkgconfig.BoolTrue {
 		devPodContainer.SecurityContext = nil
 	}
 
@@ -373,10 +407,13 @@ func getContainers(
 		devPodContainer.Env = append(existingDevPodContainer.Env, devPodContainer.Env...)
 		devPodContainer.EnvFrom = existingDevPodContainer.EnvFrom
 		devPodContainer.Ports = existingDevPodContainer.Ports
-		devPodContainer.VolumeMounts = append(existingDevPodContainer.VolumeMounts, devPodContainer.VolumeMounts...)
+		devPodContainer.VolumeMounts = append(
+			existingDevPodContainer.VolumeMounts,
+			devPodContainer.VolumeMounts...)
 		devPodContainer.ImagePullPolicy = existingDevPodContainer.ImagePullPolicy
 
-		if devPodContainer.SecurityContext == nil && existingDevPodContainer.SecurityContext != nil {
+		if devPodContainer.SecurityContext == nil &&
+			existingDevPodContainer.SecurityContext != nil {
 			devPodContainer.SecurityContext = existingDevPodContainer.SecurityContext
 		}
 	}
@@ -388,7 +425,7 @@ func getContainers(
 func getVolumes(pod *corev1.Pod, id string, daemonConfigSecretName string) []corev1.Volume {
 	volumes := []corev1.Volume{
 		{
-			Name: "devpod",
+			Name: DevContainerName,
 			VolumeSource: corev1.VolumeSource{
 				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 					ClaimName: id,
@@ -399,7 +436,7 @@ func getVolumes(pod *corev1.Pod, id string, daemonConfigSecretName string) []cor
 
 	if daemonConfigSecretName != "" {
 		volumes = append(volumes, corev1.Volume{
-			Name: "devpod-daemon-config",
+			Name: DevContainerName + "-daemon-config",
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
 					SecretName: daemonConfigSecretName,
@@ -422,9 +459,9 @@ func getVolumeMount(idx int, mount *config.Mount) corev1.VolumeMount {
 	}
 
 	return corev1.VolumeMount{
-		Name:      "devpod",
+		Name:      DevContainerName,
 		MountPath: mount.Target,
-		SubPath:   fmt.Sprintf("devpod/%s", subPath),
+		SubPath:   fmt.Sprintf(DevContainerName+"/%s", subPath),
 	}
 }
 
@@ -484,15 +521,15 @@ func (k *KubernetesDriver) StartDevContainer(ctx context.Context, workspaceId st
 }
 
 func getID(workspaceID string) string {
-	return "devpod-" + workspaceID
+	return DevContainerName + "-" + workspaceID
 }
 
 func getPullSecretsName(workspaceID string) string {
-	return fmt.Sprintf("devpod-pull-secret-%s", workspaceID)
+	return fmt.Sprintf(DevContainerName+"-pull-secret-%s", workspaceID)
 }
 
 func getDaemonSecretName(workspaceID string) string {
-	return fmt.Sprintf("devpod-daemon-secret-%s", workspaceID)
+	return fmt.Sprintf(DevContainerName+"-daemon-secret-%s", workspaceID)
 }
 
 func optionsEqual(a, b *provider2.ProviderKubernetesDriverConfig) bool {

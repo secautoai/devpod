@@ -5,7 +5,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewContainerCmd returns a new command
+// NewContainerCmd returns a new command.
 func NewContainerCmd(flags *flags.GlobalFlags) *cobra.Command {
 	containerCmd := &cobra.Command{
 		Use:   "container",
@@ -13,9 +13,12 @@ func NewContainerCmd(flags *flags.GlobalFlags) *cobra.Command {
 	}
 
 	containerCmd.AddCommand(NewSetupContainerCmd(flags))
+	containerCmd.AddCommand(NewPostAttachCmd(flags))
 	containerCmd.AddCommand(NewDaemonCmd())
 	containerCmd.AddCommand(NewVSCodeAsyncCmd())
 	containerCmd.AddCommand(NewOpenVSCodeAsyncCmd())
+	containerCmd.AddCommand(NewVSCodeWebAsyncCmd())
+	containerCmd.AddCommand(NewCodeServerAsyncCmd())
 	containerCmd.AddCommand(NewCredentialsServerCmd(flags))
 	containerCmd.AddCommand(NewSetupLoftPlatformAccessCmd(flags))
 	containerCmd.AddCommand(NewSSHServerCmd(flags))

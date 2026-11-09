@@ -14,7 +14,7 @@ import (
 
 	"github.com/blang/semver/v4"
 	"github.com/gofrs/flock"
-	"github.com/loft-sh/api/v4/pkg/devpod"
+	"github.com/skevetter/api/pkg/devsy"
 	"github.com/skevetter/devpod/pkg/client"
 	"github.com/skevetter/devpod/pkg/config"
 	devpodlog "github.com/skevetter/devpod/pkg/log"
@@ -27,23 +27,17 @@ import (
 	"github.com/skevetter/log/terminal"
 )
 
-var (
-	DevPodDebug = "DEVPOD_DEBUG"
-
-	DevPodPlatformOptions = "DEVPOD_PLATFORM_OPTIONS"
-
-	DevPodFlagsUp     = "DEVPOD_FLAGS_UP"
-	DevPodFlagsSsh    = "DEVPOD_FLAGS_SSH"
-	DevPodFlagsDelete = "DEVPOD_FLAGS_DELETE"
-	DevPodFlagsStatus = "DEVPOD_FLAGS_STATUS"
-)
-
 const (
 	lockTimeout = 5 * time.Minute
 	lockRetry   = time.Second
 )
 
-func NewProxyClient(devPodConfig *config.Config, prov *provider.ProviderConfig, workspace *provider.Workspace, log log.Logger) (client.ProxyClient, error) {
+func NewProxyClient(
+	devPodConfig *config.Config,
+	prov *provider.ProviderConfig,
+	workspace *provider.Workspace,
+	log log.Logger,
+) (client.ProxyClient, error) {
 	pc := &proxyClient{
 		devPodConfig: devPodConfig,
 		config:       prov,
@@ -67,12 +61,12 @@ type proxyClient struct {
 	executor     *proxyExecutor
 }
 
-// proxyExecutor handles proxy command execution with common patterns
+// proxyExecutor handles proxy command execution with common patterns.
 type proxyExecutor struct {
 	client *proxyClient
 }
 
-// execParams defines parameters for proxy command execution
+// execParams defines parameters for proxy command execution.
 type execParams struct {
 	name     string
 	command  types.StrArray
@@ -82,7 +76,7 @@ type execParams struct {
 	stderr   io.Writer
 }
 
-// execute runs a proxy command with common settings
+// execute runs a proxy command with common settings.
 func (e *proxyExecutor) execute(ctx context.Context, params execParams) error {
 	return RunCommandWithBinaries(CommandOptions{
 		Ctx:       ctx,
@@ -100,7 +94,7 @@ func (e *proxyExecutor) execute(ctx context.Context, params execParams) error {
 	})
 }
 
-// executeWithJSONLog runs a command with JSON log streaming
+// executeWithJSONLog runs a command with JSON log streaming.
 func (e *proxyExecutor) executeWithJSONLog(ctx context.Context, params execParams) error {
 	writer, _ := devpodlog.PipeJSONStream(e.client.log.ErrorStreamOnly())
 	defer func() { _ = writer.Close() }()
@@ -134,7 +128,14 @@ func (s *proxyClient) Unlock() {
 }
 
 func tryLock(ctx context.Context, lock *flock.Flock, name string, log log.Logger) error {
-	done := scheduleLogMessage(fmt.Sprintf("Trying to lock %s, seems like another process is running that blocks this %s", name, name), log)
+	done := scheduleLogMessage(
+		fmt.Sprintf(
+			"Trying to lock %s, seems like another process is running that blocks this %s",
+			name,
+			name,
+		),
+		log,
+	)
 	defer close(done)
 
 	now := time.Now()
@@ -154,7 +155,10 @@ func tryLock(ctx context.Context, lock *flock.Flock, name string, log log.Logger
 		}
 	}
 
-	return fmt.Errorf("timed out waiting to lock %s, seems like there is another process running on this machine that blocks it", name)
+	return fmt.Errorf(
+		"timed out waiting to lock %s, seems like there is another process running on this machine that blocks it",
+		name,
+	)
 }
 
 func (s *proxyClient) initLock() {
@@ -167,10 +171,15 @@ func (s *proxyClient) initLock() {
 		if err != nil {
 			panic(fmt.Errorf("get workspaces dir: %w", err))
 		}
-		_ = os.MkdirAll(workspaceLocksDir, 0777)
+		// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
+		if err = os.MkdirAll(workspaceLocksDir, 0o755); err != nil {
+			panic(fmt.Errorf("create workspace locks dir: %w", err))
+		}
 
 		// create workspace lock
-		s.workspaceLock = flock.New(filepath.Join(workspaceLocksDir, s.workspace.ID+".workspace.lock"))
+		s.workspaceLock = flock.New(
+			filepath.Join(workspaceLocksDir, s.workspace.ID+".workspace.lock"),
+		)
 	})
 }
 
@@ -196,7 +205,11 @@ func (s *proxyClient) Context() string {
 	return s.workspace.Context
 }
 
-func (s *proxyClient) RefreshOptions(ctx context.Context, userOptionsRaw []string, reconfigure bool) error {
+func (s *proxyClient) RefreshOptions(
+	ctx context.Context,
+	userOptionsRaw []string,
+	reconfigure bool,
+) error {
 	s.m.Lock()
 	defer s.m.Unlock()
 
@@ -229,7 +242,12 @@ func (s *proxyClient) RefreshOptions(ctx context.Context, userOptionsRaw []strin
 	return nil
 }
 
-func (s *proxyClient) Create(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func (s *proxyClient) Create(
+	ctx context.Context,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	err := s.executor.execute(ctx, execParams{
 		name:    "createWorkspace",
 		command: s.config.Exec.Proxy.Create.Workspace,
@@ -247,7 +265,7 @@ func (s *proxyClient) Ssh(ctx context.Context, opt client.SshOptions) error {
 	return s.executor.executeWithJSONLog(ctx, execParams{
 		name:     "ssh",
 		command:  s.config.Exec.Proxy.Ssh,
-		extraEnv: EncodeOptions(opt, DevPodFlagsSsh),
+		extraEnv: EncodeOptions(opt, config.EnvFlagsSSH),
 		stdin:    opt.Stdin,
 		stdout:   opt.Stdout,
 	})
@@ -265,7 +283,7 @@ func (s *proxyClient) Stop(ctx context.Context, opt client.StopOptions) error {
 }
 
 func (s *proxyClient) Up(ctx context.Context, opt client.UpOptions) error {
-	opts := EncodeOptions(opt.CLIOptions, DevPodFlagsUp)
+	opts := EncodeOptions(opt.CLIOptions, config.EnvFlagsUp)
 	if opt.Debug {
 		opts["DEBUG"] = "true"
 	}
@@ -284,8 +302,11 @@ func (s *proxyClient) Up(ctx context.Context, opt client.UpOptions) error {
 	})
 }
 
-// checkPlatformVersion validates the platform provider version compatibility
-func (s *proxyClient) checkPlatformVersion(ctx context.Context, providerOptions map[string]config.OptionValue) error {
+// checkPlatformVersion validates the platform provider version compatibility.
+func (s *proxyClient) checkPlatformVersion(
+	ctx context.Context,
+	providerOptions map[string]config.OptionValue,
+) error {
 	loftConfig := providerOptions["LOFT_CONFIG"].Value
 	if loftConfig == "" {
 		return nil
@@ -307,7 +328,10 @@ func (s *proxyClient) checkPlatformVersion(ctx context.Context, providerOptions 
 	}
 
 	if parsedVersion.GE(semver.MustParse("0.6.99")) {
-		return fmt.Errorf("you are using an outdated provider version for this platform. Please disconnect and reconnect the platform to update the provider")
+		return fmt.Errorf(
+			"you are using an outdated provider version for this platform. " +
+				"Please disconnect and reconnect the platform to update the provider",
+		)
 	}
 
 	return nil
@@ -328,7 +352,7 @@ func (s *proxyClient) Delete(ctx context.Context, opt client.DeleteOptions) erro
 	err := s.executor.executeWithJSONLog(ctx, execParams{
 		name:     "delete",
 		command:  s.config.Exec.Proxy.Delete,
-		extraEnv: EncodeOptions(opt, DevPodFlagsDelete),
+		extraEnv: EncodeOptions(opt, config.EnvFlagsDelete),
 		stdout:   io.Discard,
 	})
 	if err != nil && !opt.Force {
@@ -346,7 +370,10 @@ func (s *proxyClient) Delete(ctx context.Context, opt client.DeleteOptions) erro
 	}, s.log)
 }
 
-func (s *proxyClient) Status(ctx context.Context, options client.StatusOptions) (client.Status, error) {
+func (s *proxyClient) Status(
+	ctx context.Context,
+	options client.StatusOptions,
+) (client.Status, error) {
 	s.m.Lock()
 	defer s.m.Unlock()
 
@@ -361,21 +388,29 @@ func (s *proxyClient) Status(ctx context.Context, options client.StatusOptions) 
 		Machine:   nil,
 		Options:   s.devPodConfig.ProviderOptions(s.config.Name),
 		Config:    s.config,
-		ExtraEnv:  EncodeOptions(options, DevPodFlagsStatus),
+		ExtraEnv:  EncodeOptions(options, config.EnvFlagsStatus),
 		Stdin:     nil,
 		Stdout:    io.MultiWriter(stdout, buf),
 		Stderr:    buf,
 		Log:       s.log.ErrorStreamOnly(),
 	})
 	if err != nil {
-		return client.StatusNotFound, fmt.Errorf("error retrieving container status: %s%w", buf.String(), err)
+		return client.StatusNotFound, fmt.Errorf(
+			"error retrieving container status: %s%w",
+			buf.String(),
+			err,
+		)
 	}
 
 	devpodlog.ReadJSONStream(bytes.NewReader(buf.Bytes()), s.log.ErrorStreamOnly())
 	status := &client.WorkspaceStatus{}
 	err = json.Unmarshal(stdout.Bytes(), status)
 	if err != nil {
-		return client.StatusNotFound, fmt.Errorf("error parsing proxy command response: %s%w", stdout.String(), err)
+		return client.StatusNotFound, fmt.Errorf(
+			"error parsing proxy command response: %s%w",
+			stdout.String(),
+			err,
+		)
 	}
 
 	// parse status
@@ -412,8 +447,8 @@ func DecodeOptionsFromEnv(name string, into any) (bool, error) {
 	return true, json.Unmarshal([]byte(raw), into)
 }
 
-func DecodePlatformOptionsFromEnv(into *devpod.PlatformOptions) error {
-	raw := os.Getenv(DevPodPlatformOptions)
+func DecodePlatformOptionsFromEnv(into *devsy.PlatformOptions) error {
+	raw := os.Getenv(config.EnvPlatformOptions)
 	if raw == "" {
 		return nil
 	}

@@ -31,7 +31,14 @@ type server struct {
 	log         log.Logger
 }
 
-func NewServer(addr string, hostKey []byte, keys []ssh.PublicKey, workdir string, reuseSock string, log log.Logger) (Server, error) {
+func NewServer(
+	addr string,
+	hostKey []byte,
+	keys []ssh.PublicKey,
+	workdir string,
+	reuseSock string,
+	log log.Logger,
+) (Server, error) {
 	sh, err := shell.GetShell("")
 	if err != nil {
 		return nil, err
@@ -121,7 +128,7 @@ func (s *server) handler(sess ssh.Session) {
 	cmd := s.getCommand(sess, isPty)
 
 	if ssh.AgentRequested(sess) {
-		l, tmpDir, err := setupAgentListener(sess, s.reuseSock)
+		l, tmpDir, err := setupAgentListener(s.reuseSock)
 		if err != nil {
 			exitWithError(sess, err, s.log)
 			return
@@ -136,7 +143,13 @@ func (s *server) handler(sess ssh.Session) {
 
 	// start shell session
 	if isPty {
-		err = execPTY(sess, ptyReq, winCh, cmd, s.log)
+		err = execPTY(ptyExecParams{
+			sess:   sess,
+			ptyReq: ptyReq,
+			winCh:  winCh,
+			cmd:    cmd,
+			log:    s.log,
+		})
 	} else {
 		err = execNonPTY(sess, cmd, s.log)
 	}

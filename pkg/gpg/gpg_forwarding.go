@@ -10,10 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/skevetter/log"
-
 	"github.com/sirupsen/logrus"
 	devssh "github.com/skevetter/devpod/pkg/ssh"
+	"github.com/skevetter/log"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -25,8 +24,8 @@ type GPGConf struct {
 }
 
 func IsGpgTunnelRunning(
-	user string,
 	ctx context.Context,
+	user string,
 	client *ssh.Client,
 	log log.Logger,
 ) bool {
@@ -40,8 +39,7 @@ func IsGpgTunnelRunning(
 
 	// capture the output, if it's empty it means we don't have gpg-forwarding
 	var out bytes.Buffer
-	err := devssh.Run(devssh.RunOptions{
-		Context: ctx,
+	err := devssh.Run(ctx, devssh.RunOptions{
 		Client:  client,
 		Command: command,
 		Stdout:  &out,

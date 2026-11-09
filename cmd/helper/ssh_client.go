@@ -16,14 +16,14 @@ type SSHClient struct {
 	User    string
 }
 
-// NewSSHClientCmd creates a new ssh command
+// NewSSHClientCmd creates a new ssh command.
 func NewSSHClientCmd() *cobra.Command {
 	cmd := &SSHClient{}
 	sshCmd := &cobra.Command{
 		Use:   "ssh-client",
 		Short: "Starts a new ssh client session",
-		RunE: func(_ *cobra.Command, args []string) error {
-			return cmd.Run(context.Background(), args)
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			return cmd.Run(cobraCmd.Context(), args)
 		},
 	}
 

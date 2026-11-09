@@ -28,7 +28,7 @@ type GetWorkspaceConfigCommandResult struct {
 	ConfigPaths     []string `json:"configPaths"`
 }
 
-// NewGetWorkspaceConfigCommand creates a new command
+// NewGetWorkspaceConfigCommand creates a new command.
 func NewGetWorkspaceConfigCommand(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &GetWorkspaceConfigCommand{
 		GlobalFlags: flags,
@@ -51,13 +51,19 @@ func NewGetWorkspaceConfigCommand(flags *flags.GlobalFlags) *cobra.Command {
 		},
 	}
 
-	shellCmd.Flags().DurationVar(&cmd.timeout, "timeout", 10*time.Second, "Timeout for the command, 10 seconds by default")
-	shellCmd.Flags().IntVar(&cmd.maxDepth, "max-depth", 3, "Maximum depth to search for devcontainer files")
+	shellCmd.Flags().
+		DurationVar(&cmd.timeout, "timeout", 10*time.Second, "Timeout for the command, 10 seconds by default")
+	shellCmd.Flags().
+		IntVar(&cmd.maxDepth, "max-depth", 3, "Maximum depth to search for devcontainer files")
 
 	return shellCmd
 }
 
-func (cmd *GetWorkspaceConfigCommand) Run(ctx context.Context, devPodConfig *config.Config, args []string) error {
+func (cmd *GetWorkspaceConfigCommand) Run(
+	ctx context.Context,
+	devPodConfig *config.Config,
+	args []string,
+) error {
 	if len(args) != 1 {
 		return fmt.Errorf("workspace source is missing")
 	}
@@ -68,7 +74,7 @@ func (cmd *GetWorkspaceConfigCommand) Run(ctx context.Context, devPodConfig *con
 		level = logrus.DebugLevel
 	}
 	var logger log.Logger = log.NewStdoutLogger(os.Stdin, os.Stdout, os.Stderr, level)
-	if os.Getenv("DEVPOD_UI") == "true" {
+	if os.Getenv(config.EnvUI) == config.BoolTrue {
 		logger = log.Discard
 	}
 	logger.Debugf("Resolving devcontainer config for source: %s", rawSource)
@@ -79,7 +85,7 @@ func (cmd *GetWorkspaceConfigCommand) Run(ctx context.Context, devPodConfig *con
 	done := make(chan *devcontainer.GetWorkspaceConfigResult, 1)
 	errChan := make(chan error, 1)
 
-	tmpDir, err := os.MkdirTemp("", "devpod")
+	tmpDir, err := os.MkdirTemp("", config.BinaryName)
 	if err != nil {
 		return err
 	}
@@ -87,7 +93,16 @@ func (cmd *GetWorkspaceConfigCommand) Run(ctx context.Context, devPodConfig *con
 		_ = os.RemoveAll(tmpDir)
 	}()
 	go func() {
-		result, err := devcontainer.FindDevcontainerFiles(ctx, rawSource, tmpDir, cmd.maxDepth, devPodConfig.ContextOption(config.ContextOptionSSHStrictHostKeyChecking) == "true", logger)
+		result, err := devcontainer.FindDevcontainerFiles(
+			ctx,
+			rawSource,
+			tmpDir,
+			cmd.maxDepth,
+			devPodConfig.ContextOption(
+				config.ContextOptionSSHStrictHostKeyChecking,
+			) == config.BoolTrue,
+			logger,
+		)
 		if err != nil {
 			errChan <- err
 			return

@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// DeleteCmd holds the configuration
+// DeleteCmd holds the configuration.
 type DeleteCmd struct {
 	*flags.GlobalFlags
 
@@ -21,7 +21,7 @@ type DeleteCmd struct {
 	Force       bool
 }
 
-// NewDeleteCmd creates a new destroy command
+// NewDeleteCmd creates a new delete command.
 func NewDeleteCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &DeleteCmd{
 		GlobalFlags: flags,
@@ -29,17 +29,19 @@ func NewDeleteCmd(flags *flags.GlobalFlags) *cobra.Command {
 	deleteCmd := &cobra.Command{
 		Use:   "delete [name]",
 		Short: "Deletes an existing machine",
-		RunE: func(_ *cobra.Command, args []string) error {
-			return cmd.Run(context.Background(), args)
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			return cmd.Run(cobraCmd.Context(), args)
 		},
 	}
 
-	deleteCmd.Flags().StringVar(&cmd.GracePeriod, "grace-period", "", "The amount of time to give the command to delete the workspace")
-	deleteCmd.Flags().BoolVar(&cmd.Force, "force", false, "Delete workspace even if it is not found remotely anymore")
+	deleteCmd.Flags().
+		StringVar(&cmd.GracePeriod, "grace-period", "", "The amount of time to give the command to delete the workspace")
+	deleteCmd.Flags().
+		BoolVar(&cmd.Force, "force", false, "Delete workspace even if it is not found remotely anymore")
 	return deleteCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *DeleteCmd) Run(ctx context.Context, args []string) error {
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
@@ -52,7 +54,13 @@ func (cmd *DeleteCmd) Run(ctx context.Context, args []string) error {
 	}
 
 	// check if there are workspaces that still use this machine
-	workspaces, err := workspace.List(ctx, devPodConfig, false, platform.SelfOwnerFilter, log.Default)
+	workspaces, err := workspace.List(
+		ctx,
+		devPodConfig,
+		false,
+		platform.SelfOwnerFilter,
+		log.Default,
+	)
 	if err != nil {
 		return err
 	}
@@ -60,7 +68,13 @@ func (cmd *DeleteCmd) Run(ctx context.Context, args []string) error {
 	// search for workspace that uses this machine
 	for _, workspace := range workspaces {
 		if workspace.Machine.ID == machineClient.Machine() {
-			return fmt.Errorf("cannot delete machine '%s', because workspace '%s' is still using it. Please delete the workspace '%s' before deleting the machine", workspace.Machine.ID, workspace.ID, workspace.ID)
+			return fmt.Errorf(
+				"cannot delete machine '%s', because workspace '%s' is still using it. "+
+					"Please delete the workspace '%s' before deleting the machine",
+				workspace.Machine.ID,
+				workspace.ID,
+				workspace.ID,
+			)
 		}
 	}
 

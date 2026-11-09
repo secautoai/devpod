@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// BuildCmd holds the cmd flags
+// BuildCmd holds the cmd flags.
 type BuildCmd struct {
 	*flags.GlobalFlags
 	provider.CLIOptions
@@ -27,7 +27,7 @@ type BuildCmd struct {
 	Machine    string
 }
 
-// NewBuildCmd creates a new command
+// NewBuildCmd creates a new command.
 func NewBuildCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &BuildCmd{
 		GlobalFlags: flags,
@@ -55,26 +55,31 @@ func NewBuildCmd(flags *flags.GlobalFlags) *cobra.Command {
 
 			// check permissions
 			if !cmd.SkipPush && cmd.Repository != "" {
-				err = image.CheckPushPermissions(cmd.Repository)
-				if err != nil {
-					return fmt.Errorf("cannot push to %s, please make sure you have push permissions to repository %s", cmd.Repository, cmd.Repository)
+				if err := image.CheckPushPermissions(ctx, cmd.Repository); err != nil {
+					return fmt.Errorf(
+						"cannot push to %s, please make sure you have push permissions to repository: %w",
+						cmd.Repository,
+						err,
+					)
 				}
 			}
 
 			// validate tags
 			if len(cmd.Tag) > 0 {
 				if err := image.ValidateTags(cmd.Tag); err != nil {
-					return fmt.Errorf("cannot build image,: %w", err)
+					return fmt.Errorf("cannot build image: %w", err)
 				}
 			}
 
-			if devPodConfig.ContextOption(config.ContextOptionSSHStrictHostKeyChecking) == "true" {
+			if devPodConfig.ContextOption(
+				config.ContextOptionSSHStrictHostKeyChecking,
+			) == config.BoolTrue {
 				cmd.StrictHostKeyChecking = true
 			}
 
 			// create a temporary workspace
 			exists := workspace2.Exists(ctx, devPodConfig, args, "", cmd.Owner, log.Default)
-			sshConfigFile, err := os.CreateTemp("", "devpodssh.config")
+			sshConfigFile, err := os.CreateTemp("", config.BinaryName+"ssh.config")
 			if err != nil {
 				return err
 			}
@@ -128,40 +133,60 @@ func NewBuildCmd(flags *flags.GlobalFlags) *cobra.Command {
 		},
 	}
 
-	buildCmd.Flags().StringVar(&cmd.DevContainerImage, "devcontainer-image", "", "The container image to use, this will override the devcontainer.json value in the project")
-	buildCmd.Flags().StringVar(&cmd.DevContainerPath, "devcontainer-path", "", "The path to the devcontainer.json relative to the project")
-	buildCmd.Flags().StringSliceVar(&cmd.ProviderOptions, "provider-option", []string{}, "Provider option in the form KEY=VALUE")
-	buildCmd.Flags().BoolVar(&cmd.SkipDelete, "skip-delete", false, "If true will not delete the workspace after building it")
-	buildCmd.Flags().StringVar(&cmd.Machine, "machine", "", "The machine to use for this workspace. The machine needs to exist beforehand or the command will fail. If the workspace already exists, this option has no effect")
+	buildCmd.Flags().
+		StringVar(&cmd.DevContainerImage, "devcontainer-image", "",
+			"The container image to use, this will override the devcontainer.json value in the project")
+	buildCmd.Flags().
+		StringVar(&cmd.DevContainerPath, "devcontainer-path", "", "The path to the devcontainer.json relative to the project")
+	buildCmd.Flags().
+		StringVar(&cmd.AdditionalFeatures, "additional-features", "",
+			`Additional features to apply to the dev container (JSON as per "features" section in devcontainer.json)`)
+	buildCmd.Flags().
+		StringSliceVar(&cmd.ProviderOptions, "provider-option", []string{}, "Provider option in the form KEY=VALUE")
+	buildCmd.Flags().
+		BoolVar(&cmd.SkipDelete, "skip-delete", false, "If true will not delete the workspace after building it")
+	buildCmd.Flags().
+		StringVar(&cmd.Machine, "machine", "",
+			"The machine to use for this workspace. The machine needs to exist beforehand or the "+
+				"command will fail. If the workspace already exists, this option has no effect")
 	buildCmd.Flags().StringVar(&cmd.Repository, "repository", "", "The repository to push to")
-	buildCmd.Flags().StringSliceVar(&cmd.Tag, "tag", []string{}, "Image Tag(s) in the form of a comma separated list --tag latest,arm64 or multiple flags --tag latest --tag arm64")
-	buildCmd.Flags().StringSliceVar(&cmd.Platforms, "platform", []string{}, "Set target platform for build")
-	buildCmd.Flags().BoolVar(&cmd.SkipPush, "skip-push", false, "If true will not push the image to the repository, useful for testing")
+	buildCmd.Flags().
+		StringSliceVar(&cmd.Tag, "tag", []string{},
+			"Image Tag(s) in the form of a comma separated list --tag latest,arm64 or "+
+				"multiple flags --tag latest --tag arm64")
+	buildCmd.Flags().
+		StringSliceVar(&cmd.Platforms, "platform", []string{}, "Set target platform for build")
+	buildCmd.Flags().
+		BoolVar(&cmd.SkipPush, "skip-push", false, "If true will not push the image to the repository, useful for testing")
 	buildCmd.Flags().BoolVar(&cmd.PushDuringBuild, "push", false,
 		"Push image directly to registry during build, skipping load to local daemon.",
 	)
-	buildCmd.Flags().Var(&cmd.GitCloneStrategy, "git-clone-strategy", "The git clone strategy DevPod uses to checkout git based workspaces. Can be full (default), blobless, treeless or shallow")
-	buildCmd.Flags().BoolVar(&cmd.GitCloneRecursiveSubmodules, "git-clone-recursive-submodules", false, "If true will clone git submodule repositories recursively")
+	buildCmd.Flags().
+		Var(&cmd.GitCloneStrategy, "git-clone-strategy",
+			"The git clone strategy DevPod uses to checkout git based workspaces. "+
+				"Can be full (default), blobless, treeless or shallow")
+	buildCmd.Flags().
+		BoolVar(&cmd.GitCloneRecursiveSubmodules, "git-clone-recursive-submodules", false,
+			"If true will clone git submodule repositories recursively")
 
 	// TESTING
 	buildCmd.Flags().BoolVar(&cmd.ForceBuild, "force-build", false, "TESTING ONLY")
-	buildCmd.Flags().BoolVar(&cmd.ForceInternalBuildKit, "force-internal-buildkit", false, "TESTING ONLY")
+	buildCmd.Flags().
+		BoolVar(&cmd.ForceInternalBuildKit, "force-internal-buildkit", false, "TESTING ONLY")
 	_ = buildCmd.Flags().MarkHidden("force-build")
 	_ = buildCmd.Flags().MarkHidden("force-internal-buildkit")
 	return buildCmd
 }
 
 func (cmd *BuildCmd) Run(ctx context.Context, client client.WorkspaceClient) error {
-	// build workspace
-	err := cmd.build(ctx, client, log.Default)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return cmd.build(ctx, client, log.Default)
 }
 
-func (cmd *BuildCmd) build(ctx context.Context, workspaceClient client.WorkspaceClient, log log.Logger) error {
+func (cmd *BuildCmd) build(
+	ctx context.Context,
+	workspaceClient client.WorkspaceClient,
+	log log.Logger,
+) error {
 	err := workspaceClient.Lock(ctx)
 	if err != nil {
 		return err
@@ -178,11 +203,14 @@ func (cmd *BuildCmd) build(ctx context.Context, workspaceClient client.Workspace
 		log.Debugf("done building devcontainer")
 		log.Infof("cleaning up temporary workspace")
 	}()
-	_, err = clientimplementation.BuildAgentClient(ctx, clientimplementation.BuildAgentClientOptions{
-		WorkspaceClient: workspaceClient,
-		CLIOptions:      cmd.CLIOptions,
-		AgentCommand:    "build",
-		Log:             log,
-	})
+	_, err = clientimplementation.BuildAgentClient(
+		ctx,
+		clientimplementation.BuildAgentClientOptions{
+			WorkspaceClient: workspaceClient,
+			CLIOptions:      cmd.CLIOptions,
+			AgentCommand:    "build",
+			Log:             log,
+		},
+	)
 	return err
 }

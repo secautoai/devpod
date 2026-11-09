@@ -10,13 +10,13 @@ import (
 	proflags "github.com/skevetter/devpod/cmd/pro/flags"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/provider"
+	"github.com/skevetter/devpod/pkg/table"
 	"github.com/skevetter/devpod/pkg/workspace"
 	"github.com/skevetter/log"
-	"github.com/skevetter/log/table"
 	"github.com/spf13/cobra"
 )
 
-// ListCmd holds the list cmd flags
+// ListCmd holds the list cmd flags.
 type ListCmd struct {
 	proflags.GlobalFlags
 
@@ -24,7 +24,7 @@ type ListCmd struct {
 	Login  bool
 }
 
-// NewListCmd creates a new command
+// NewListCmd creates a new command.
 func NewListCmd(flags *proflags.GlobalFlags) *cobra.Command {
 	cmd := &ListCmd{
 		GlobalFlags: *flags,
@@ -34,17 +34,19 @@ func NewListCmd(flags *proflags.GlobalFlags) *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "List available DevPod Pro instances",
 		Args:    cobra.NoArgs,
-		RunE: func(_ *cobra.Command, args []string) error {
-			return cmd.Run(context.Background())
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			return cmd.Run(cobraCmd.Context())
 		},
 	}
 
-	listCmd.Flags().StringVar(&cmd.Output, "output", "plain", "The output format to use. Can be json or plain")
-	listCmd.Flags().BoolVar(&cmd.Login, "login", false, "Check if the user is logged into the pro instance")
+	listCmd.Flags().
+		StringVar(&cmd.Output, "output", "plain", "The output format to use. Can be json or plain")
+	listCmd.Flags().
+		BoolVar(&cmd.Login, "login", false, "Check if the user is logged into the pro instance")
 	return listCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *ListCmd) Run(ctx context.Context) error {
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
@@ -85,14 +87,14 @@ func (cmd *ListCmd) Run(ctx context.Context) error {
 			tableHeaders = append(tableHeaders, "Authenticated")
 		}
 
-		table.PrintTable(log.Default, tableHeaders, tableEntries)
+		table.Print(tableHeaders, tableEntries)
 	case "json":
 		tableEntries := []*proTableEntry{}
 		for _, proInstance := range proInstances {
 			entry := &proTableEntry{
 				ProInstance:  proInstance,
 				Context:      devPodConfig.DefaultContext,
-				Capabilities: getCapabilities(ctx, devPodConfig, proInstance, log.Discard),
+				Capabilities: getCapabilities(devPodConfig, proInstance, log.Discard),
 			}
 			if cmd.Login {
 				err = checkLogin(ctx, devPodConfig, proInstance)
@@ -112,7 +114,10 @@ func (cmd *ListCmd) Run(ctx context.Context) error {
 		}
 		fmt.Print(string(out))
 	default:
-		return fmt.Errorf("unexpected output format, choose either json or plain. Got %s", cmd.Output)
+		return fmt.Errorf(
+			"unexpected output format, choose either json or plain. Got %s",
+			cmd.Output,
+		)
 	}
 
 	return nil
@@ -134,16 +139,33 @@ var (
 	capabilityUpdateProvider Capability = "update-provider"
 )
 
-func checkLogin(ctx context.Context, devPodConfig *config.Config, proInstance *provider.ProInstance) error {
+func checkLogin(
+	ctx context.Context,
+	devPodConfig *config.Config,
+	proInstance *provider.ProInstance,
+) error {
 	// for every pro instance, check auth status by calling login
-	if err := login(ctx, devPodConfig, proInstance.Host, proInstance.Provider, "", true, false, log.Default); err != nil {
+	if err := login(
+		ctx,
+		devPodConfig,
+		proInstance.Host,
+		proInstance.Provider,
+		"",
+		true,
+		false,
+		log.Default,
+	); err != nil {
 		return fmt.Errorf("not logged into %s", proInstance.Host)
 	}
 
 	return nil
 }
 
-func getCapabilities(ctx context.Context, devPodConfig *config.Config, proInstance *provider.ProInstance, log log.Logger) []Capability {
+func getCapabilities(
+	devPodConfig *config.Config,
+	proInstance *provider.ProInstance,
+	log log.Logger,
+) []Capability {
 	capabilities := []Capability{}
 	provider, err := workspace.FindProvider(devPodConfig, proInstance.Provider, log)
 	if err != nil {

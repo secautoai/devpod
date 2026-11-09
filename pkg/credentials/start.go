@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/pkg/agent/tunnel"
 	devpodhttp "github.com/skevetter/devpod/pkg/http"
 	portpkg "github.com/skevetter/devpod/pkg/port"
@@ -15,7 +14,11 @@ import (
 	"github.com/skevetter/log"
 )
 
-func StartCredentialsServer(ctx context.Context, client tunnel.TunnelClient, log log.Logger) (int, error) {
+func StartCredentialsServer(
+	ctx context.Context,
+	client tunnel.TunnelClient,
+	log log.Logger,
+) (int, error) {
 	port, err := portpkg.FindAvailablePort(random.InRange(13000, 17000))
 	if err != nil {
 		return 0, err
@@ -24,7 +27,7 @@ func StartCredentialsServer(ctx context.Context, client tunnel.TunnelClient, log
 	go func() {
 		err := RunCredentialsServer(ctx, port, client, log)
 		if err != nil {
-			log.WithFields(logrus.Fields{"error": err}).Error("error running git credentials server")
+			log.Errorf("error running git credentials server: error=%v", err)
 		}
 	}()
 

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/skevetter/devpod/pkg/config"
 )
 
 //go:embed provider.yaml
@@ -24,12 +26,13 @@ func main() {
 		basePath = os.Args[2]
 	}
 
+	bin := config.BinaryName
 	checksumMap := map[string]string{
-		filepath.Join(basePath, "devpod-linux-amd64"):       "##CHECKSUM_LINUX_AMD64##",
-		filepath.Join(basePath, "devpod-linux-arm64"):       "##CHECKSUM_LINUX_ARM64##",
-		filepath.Join(basePath, "devpod-darwin-amd64"):      "##CHECKSUM_DARWIN_AMD64##",
-		filepath.Join(basePath, "devpod-darwin-arm64"):      "##CHECKSUM_DARWIN_ARM64##",
-		filepath.Join(basePath, "devpod-windows-amd64.exe"): "##CHECKSUM_WINDOWS_AMD64##",
+		filepath.Join(basePath, bin+"-linux-amd64"):       "##CHECKSUM_LINUX_AMD64##",
+		filepath.Join(basePath, bin+"-linux-arm64"):       "##CHECKSUM_LINUX_ARM64##",
+		filepath.Join(basePath, bin+"-darwin-amd64"):      "##CHECKSUM_DARWIN_AMD64##",
+		filepath.Join(basePath, bin+"-darwin-arm64"):      "##CHECKSUM_DARWIN_ARM64##",
+		filepath.Join(basePath, bin+"-windows-amd64.exe"): "##CHECKSUM_WINDOWS_AMD64##",
 	}
 
 	partial := os.Getenv("PARTIAL") == "true"
@@ -67,7 +70,8 @@ func main() {
 	}
 
 	if ok {
-		err := os.WriteFile(absPath, []byte(replaced), 0644)
+		// #nosec G306,G703 -- TODO Consider using a more secure permission setting and ownership if needed.
+		err := os.WriteFile(absPath, []byte(replaced), 0o644)
 		if err != nil {
 			panic(err)
 		}
@@ -76,7 +80,7 @@ func main() {
 	}
 }
 
-// File hashes a given file to a sha256 string
+// File hashes a given file to a sha256 string.
 func File(filePath string) (string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {

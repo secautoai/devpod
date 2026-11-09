@@ -7,15 +7,17 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/cmd/flags"
+	"github.com/skevetter/devpod/pkg/agent"
+	"github.com/skevetter/devpod/pkg/config"
 	helperssh "github.com/skevetter/devpod/pkg/ssh/server"
 	"github.com/skevetter/devpod/pkg/ssh/server/port"
 	"github.com/skevetter/log"
 	"github.com/spf13/cobra"
 )
 
-const BaseLogDir = "/var/devpod"
+var BaseLogDir = agent.ContainerDataDir
 
-// SSHServerCmd holds the ssh server cmd flags
+// SSHServerCmd holds the ssh server cmd flags.
 type SSHServerCmd struct {
 	*flags.GlobalFlags
 
@@ -24,25 +26,28 @@ type SSHServerCmd struct {
 	RemoteUser string
 }
 
-// NewSSHServerCmd creates a new ssh command
+// NewSSHServerCmd creates a new ssh command.
 func NewSSHServerCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &SSHServerCmd{
 		GlobalFlags: flags,
 	}
 	sshCmd := &cobra.Command{
 		Use:   "ssh-server",
-		Short: "Starts the container ssh server",
+		Short: "Starts the container SSH server",
 		Args:  cobra.NoArgs,
 		RunE:  cmd.Run,
 	}
 
-	sshCmd.Flags().StringVar(&cmd.Address, "address", fmt.Sprintf("127.0.0.1:%d", helperssh.DefaultUserPort), "Address to listen to")
-	sshCmd.Flags().StringVar(&cmd.RemoteUser, "remote-user", "", "The remote user for this workspace")
-	sshCmd.Flags().StringVar(&cmd.Workdir, "workdir", "", "Directory where commands will run on the host")
+	sshCmd.Flags().
+		StringVar(&cmd.Address, "address", fmt.Sprintf("127.0.0.1:%d", helperssh.DefaultUserPort), "Address to listen to")
+	sshCmd.Flags().
+		StringVar(&cmd.RemoteUser, "remote-user", "", "The remote user for this workspace")
+	sshCmd.Flags().
+		StringVar(&cmd.Workdir, "workdir", "", "Directory where commands will run on the host")
 	return sshCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *SSHServerCmd) Run(_ *cobra.Command, _ []string) error {
 	logger := getFileLogger(cmd.RemoteUser, cmd.Debug)
 	server, err := helperssh.NewContainerServer(cmd.Address, cmd.Workdir, logger)
@@ -71,7 +76,7 @@ func getFileLogger(remoteUser string, debug bool) log.Logger {
 	}
 	fallback := log.NewDiscardLogger(logLevel)
 
-	targetFolder := filepath.Join(os.TempDir(), ".devpod")
+	targetFolder := filepath.Join(os.TempDir(), config.ConfigDirName)
 	if remoteUser != "" {
 		targetFolder = filepath.Join(BaseLogDir, remoteUser)
 	}

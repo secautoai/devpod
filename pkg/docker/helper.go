@@ -10,12 +10,14 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/skevetter/devpod/pkg/command"
 	"github.com/skevetter/devpod/pkg/devcontainer/config"
 	"github.com/skevetter/devpod/pkg/image"
 	"github.com/skevetter/log"
 	"github.com/skevetter/log/scanner"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 // DockerBuilder represents the Docker builder types.
@@ -66,7 +68,10 @@ func (r *DockerHelper) GPUSupportEnabled() (bool, error) {
 	return strings.Contains(string(out), "nvidia-container-runtime"), nil
 }
 
-func (r *DockerHelper) FindDevContainer(ctx context.Context, labels []string) (*config.ContainerDetails, error) {
+func (r *DockerHelper) FindDevContainer(
+	ctx context.Context,
+	labels []string,
+) (*config.ContainerDetails, error) {
 	containers, err := r.FindContainer(ctx, labels)
 	if err != nil {
 		return nil, fmt.Errorf("docker ps: %w", err)
@@ -77,7 +82,10 @@ func (r *DockerHelper) FindDevContainer(ctx context.Context, labels []string) (*
 	return r.FindContainerByID(ctx, containers)
 }
 
-func (r *DockerHelper) FindContainerByID(ctx context.Context, containerIds []string) (*config.ContainerDetails, error) {
+func (r *DockerHelper) FindContainerByID(
+	ctx context.Context,
+	containerIds []string,
+) (*config.ContainerDetails, error) {
 	containerDetails, err := r.InspectContainers(ctx, containerIds)
 	if err != nil {
 		return nil, err
@@ -125,7 +133,13 @@ func (r *DockerHelper) Stop(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *DockerHelper) Pull(ctx context.Context, image string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func (r *DockerHelper) Pull(
+	ctx context.Context,
+	image string,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	cmd := r.buildCmd(ctx, "pull", image)
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
@@ -142,11 +156,24 @@ func (r *DockerHelper) Remove(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *DockerHelper) Run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func (r *DockerHelper) Run(
+	ctx context.Context,
+	args []string,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	return r.RunWithDir(ctx, "", args, stdin, stdout, stderr)
 }
 
-func (r *DockerHelper) RunWithDir(ctx context.Context, dir string, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func (r *DockerHelper) RunWithDir(
+	ctx context.Context,
+	dir string,
+	args []string,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	cmd := r.buildCmd(ctx, args...)
 	cmd.Dir = dir
 	cmd.Stdin = stdin
@@ -158,7 +185,9 @@ func (r *DockerHelper) RunWithDir(ctx context.Context, dir string, args []string
 func (r *DockerHelper) StartContainer(ctx context.Context, containerId string) error {
 	out, err := r.buildCmd(ctx, "start", containerId).CombinedOutput()
 	if err != nil {
-		stateErr, _ := r.buildCmd(ctx, "inspect", containerId, "--format", "{{.State.Error}} (exit code: {{.State.ExitCode}})").CombinedOutput()
+		stateErr, _ := r.buildCmd(ctx, "inspect", containerId, "--format",
+			"{{.State.Error}} (exit code: {{.State.ExitCode}})").
+			CombinedOutput()
 		logs, _ := r.buildCmd(ctx, "logs", containerId, "--tail", "50").CombinedOutput()
 		details := strings.TrimSpace(string(stateErr) + "\n" + string(logs))
 		if details != "" {
@@ -177,8 +206,70 @@ func (r *DockerHelper) StartContainer(ctx context.Context, containerId string) e
 	return nil
 }
 
+// ErrContainerTerminal indicates a container entered an unrecoverable state
+// (e.g. "dead" or "removing") and cannot be restarted.
+var ErrContainerTerminal = errors.New("container in terminal state")
+
+const (
+	containerRunningPollInterval = 500 * time.Millisecond
+	containerRunningTimeout      = 30 * time.Second
+)
+
+// WaitContainerRunning polls docker inspect until the container reports
+// status "running" or the context/timeout expires. It does not start
+// the container — the caller is responsible for that.
+func (r *DockerHelper) WaitContainerRunning(ctx context.Context, containerID string) error {
+	var lastErr error
+	pollErr := wait.PollUntilContextTimeout(
+		ctx, containerRunningPollInterval, containerRunningTimeout, true,
+		func(ctx context.Context) (bool, error) {
+			details, err := r.InspectContainers(ctx, []string{containerID})
+			if err != nil {
+				lastErr = err
+				r.Log.Debugf("WaitContainerRunning: inspect error (will retry): %v", err)
+				return false, nil
+			}
+			if len(details) == 0 {
+				return false, fmt.Errorf(
+					"container %s disappeared while waiting for it to start",
+					containerID,
+				)
+			}
+			lastErr = nil
+			status := strings.ToLower(details[0].State.Status)
+			if status == "running" {
+				return true, nil
+			}
+			if status == "removing" || status == "dead" {
+				return false, fmt.Errorf(
+					"%w: container %s is %q",
+					ErrContainerTerminal,
+					containerID,
+					status,
+				)
+			}
+			r.Log.Debugf(
+				"WaitContainerRunning: container %s status=%s, waiting...",
+				containerID,
+				status,
+			)
+			return false, nil
+		},
+	)
+	if pollErr != nil && lastErr != nil {
+		return fmt.Errorf("%w (last inspect error: %v)", pollErr, lastErr)
+	}
+	return pollErr
+}
+
 func (r *DockerHelper) GetImageTag(ctx context.Context, imageID string) (string, error) {
-	args := []string{"inspect", "--type", "image", "--format", "{{if .RepoTags}}{{index .RepoTags 0}}{{end}}"}
+	args := []string{
+		"inspect",
+		"--type",
+		"image",
+		"--format",
+		"{{if .RepoTags}}{{index .RepoTags 0}}{{end}}",
+	}
 	args = append(args, imageID)
 	out, err := r.buildCmd(ctx, args...).Output()
 	if err != nil {
@@ -195,7 +286,11 @@ func (r *DockerHelper) GetImageTag(ctx context.Context, imageID string) (string,
 	return "", nil
 }
 
-func (r *DockerHelper) InspectImage(ctx context.Context, imageName string, tryRemote bool) (*config.ImageDetails, error) {
+func (r *DockerHelper) InspectImage(
+	ctx context.Context,
+	imageName string,
+	tryRemote bool,
+) (*config.ImageDetails, error) {
 	imageDetails := []*config.ImageDetails{}
 	err := r.Inspect(ctx, []string{imageName}, "image", &imageDetails)
 	if err != nil {
@@ -226,7 +321,10 @@ func (r *DockerHelper) InspectImage(ctx context.Context, imageName string, tryRe
 	return imageDetails[0], nil
 }
 
-func (r *DockerHelper) InspectContainers(ctx context.Context, ids []string) ([]config.ContainerDetails, error) {
+func (r *DockerHelper) InspectContainers(
+	ctx context.Context,
+	ids []string,
+) ([]config.ContainerDetails, error) {
 	details := []config.ContainerDetails{}
 	err := r.Inspect(ctx, ids, "container", &details)
 	if err != nil {
@@ -258,7 +356,12 @@ func (r *DockerHelper) IsNerdctl() bool {
 	return strings.Contains(string(out), "nerdctl")
 }
 
-func (r *DockerHelper) Inspect(ctx context.Context, ids []string, inspectType string, obj any) error {
+func (r *DockerHelper) Inspect(
+	ctx context.Context,
+	ids []string,
+	inspectType string,
+	obj any,
+) error {
 	args := []string{"inspect", "--type", inspectType}
 	args = append(args, ids...)
 	out, err := r.buildCmd(ctx, args...).Output()
@@ -334,7 +437,12 @@ func (r *DockerHelper) FindContainerJSON(ctx context.Context, labels []string) (
 	return result, nil
 }
 
-func (r *DockerHelper) GetContainerLogs(ctx context.Context, id string, stdout io.Writer, stderr io.Writer) error {
+func (r *DockerHelper) GetContainerLogs(
+	ctx context.Context,
+	id string,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	args := []string{"logs", id}
 	cmd := r.buildCmd(ctx, args...)
 	cmd.Stdout = stdout

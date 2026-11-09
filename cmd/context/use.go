@@ -9,14 +9,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// UseCmd holds the use cmd flags
+// UseCmd holds the use cmd flags.
 type UseCmd struct {
 	*flags.GlobalFlags
 
 	Options []string
 }
 
-// NewUseCmd uses a new command
+// NewUseCmd uses a new command.
 func NewUseCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &UseCmd{
 		GlobalFlags: flags,
@@ -24,20 +24,21 @@ func NewUseCmd(flags *flags.GlobalFlags) *cobra.Command {
 	useCmd := &cobra.Command{
 		Use:   "use",
 		Short: "Set a DevPod context as the default",
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return fmt.Errorf("please specify the context to use")
 			}
 
-			return cmd.Run(context.Background(), args[0])
+			return cmd.Run(cobraCmd.Context(), args[0])
 		},
 	}
 
-	useCmd.Flags().StringArrayVarP(&cmd.Options, "option", "o", []string{}, "context option in the form KEY=VALUE")
+	useCmd.Flags().
+		StringArrayVarP(&cmd.Options, "option", "o", []string{}, "context option in the form KEY=VALUE")
 	return useCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *UseCmd) Run(ctx context.Context, context string) error {
 	devPodConfig, err := config.LoadConfig("", cmd.Provider)
 	if err != nil {

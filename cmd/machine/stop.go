@@ -11,12 +11,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// StopCmd holds the configuration
+// StopCmd holds the configuration.
 type StopCmd struct {
 	*flags.GlobalFlags
 }
 
-// NewStopCmd creates a new destroy command
+// NewStopCmd creates a new stop command.
 func NewStopCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &StopCmd{
 		GlobalFlags: flags,
@@ -24,15 +24,15 @@ func NewStopCmd(flags *flags.GlobalFlags) *cobra.Command {
 	stopCmd := &cobra.Command{
 		Use:   "stop [name]",
 		Short: "Stops an existing machine",
-		RunE: func(_ *cobra.Command, args []string) error {
-			return cmd.Run(context.Background(), args)
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			return cmd.Run(cobraCmd.Context(), args)
 		},
 	}
 
 	return stopCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *StopCmd) Run(ctx context.Context, args []string) error {
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {

@@ -10,19 +10,18 @@ import (
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/ide"
 	"github.com/skevetter/devpod/pkg/ide/ideparse"
-	"github.com/skevetter/log"
-	"github.com/skevetter/log/table"
+	"github.com/skevetter/devpod/pkg/table"
 	"github.com/spf13/cobra"
 )
 
-// OptionsCmd holds the options cmd flags
+// OptionsCmd holds the options cmd flags.
 type OptionsCmd struct {
 	*flags.GlobalFlags
 
 	Output string
 }
 
-// NewOptionsCmd creates a new command
+// NewOptionsCmd creates a new command.
 func NewOptionsCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &OptionsCmd{
 		GlobalFlags: flags,
@@ -30,16 +29,17 @@ func NewOptionsCmd(flags *flags.GlobalFlags) *cobra.Command {
 	optionsCmd := &cobra.Command{
 		Use:   "options",
 		Short: "List ide options",
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return fmt.Errorf("please specify the ide")
 			}
 
-			return cmd.Run(context.Background(), args[0])
+			return cmd.Run(cobraCmd.Context(), args[0])
 		},
 	}
 
-	optionsCmd.Flags().StringVar(&cmd.Output, "output", "plain", "The output format to use. Can be json or plain")
+	optionsCmd.Flags().
+		StringVar(&cmd.Output, "output", "plain", "The output format to use. Can be json or plain")
 	return optionsCmd
 }
 
@@ -49,7 +49,7 @@ type optionWithValue struct {
 	Value string `json:"value,omitempty"`
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *OptionsCmd) Run(ctx context.Context, ide string) error {
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
@@ -78,7 +78,7 @@ func (cmd *OptionsCmd) Run(ctx context.Context, ide string) error {
 			return tableEntries[i][0] < tableEntries[j][0]
 		})
 
-		table.PrintTable(log.Default, []string{
+		table.Print([]string{
 			"Name",
 			"Description",
 			"Default",
@@ -99,7 +99,10 @@ func (cmd *OptionsCmd) Run(ctx context.Context, ide string) error {
 		}
 		fmt.Print(string(out))
 	default:
-		return fmt.Errorf("unexpected output format, choose either json or plain. Got %s", cmd.Output)
+		return fmt.Errorf(
+			"unexpected output format, choose either json or plain. Got %s",
+			cmd.Output,
+		)
 	}
 
 	return nil

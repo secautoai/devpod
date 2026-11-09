@@ -7,12 +7,9 @@ import (
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
-
 	"github.com/onsi/gomega"
-
 	"github.com/skevetter/devpod/e2e/framework"
-
-	// Register tests
+	// Register tests.
 	_ "github.com/skevetter/devpod/e2e/tests/build"
 	_ "github.com/skevetter/devpod/e2e/tests/context"
 	_ "github.com/skevetter/devpod/e2e/tests/dockerinstall"
@@ -24,6 +21,7 @@ import (
 	_ "github.com/skevetter/devpod/e2e/tests/ssh"
 	_ "github.com/skevetter/devpod/e2e/tests/up"
 	_ "github.com/skevetter/devpod/e2e/tests/up-features"
+	_ "github.com/skevetter/devpod/e2e/tests/upgrade"
 )
 
 // TestRunE2ETests checks configuration parameters (specified through flags) and then runs
@@ -35,8 +33,14 @@ func TestRunE2ETests(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		go framework.ServeAgent()
 
-		// wait for http server to be up and running
+		// wait for http server to be up and running (max 30s)
+		deadline := time.After(30 * time.Second)
 		for {
+			select {
+			case <-deadline:
+				t.Fatal("timeout waiting for DEVPOD_AGENT_URL to be set after 30s")
+			default:
+			}
 			time.Sleep(time.Second)
 			if os.Getenv("DEVPOD_AGENT_URL") != "" {
 				break

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/pkg/command"
+	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/log"
 )
 
@@ -59,7 +59,7 @@ func Inject(opts InjectOptions) (bool, error) {
 		if opts.ScriptParams.DownloadURLs != nil {
 			url = opts.ScriptParams.DownloadURLs.Base
 		}
-		opts.Log.WithFields(logrus.Fields{"url": url}).Debug("prefer downloading agent from URL")
+		opts.Log.Debugf("prefer downloading agent from URL: url=%s", url)
 	}
 
 	scriptRawCode, err := GenerateScript(Script, opts.ScriptParams)
@@ -103,7 +103,8 @@ func Inject(opts InjectOptions) (bool, error) {
 		defer opts.Log.Debug("done exec")
 
 		err := opts.Exec(cancelCtx, scriptRawCode, stdinReader, stdoutWriter, delayedStderr)
-		if err != nil && !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "signal: ") {
+		if err != nil && !errors.Is(err, context.Canceled) &&
+			!strings.Contains(err.Error(), "signal: ") {
 			execErrChan <- command.WrapCommandError(delayedStderr.Buffer(), err)
 		} else {
 			execErrChan <- nil
@@ -116,7 +117,16 @@ func Inject(opts InjectOptions) (bool, error) {
 		defer func() { _ = stdinWriter.Close() }()
 		defer opts.Log.Debug("done inject")
 
-		wasExecuted, err := inject(opts.LocalFile, stdinWriter, opts.Stdin, stdoutReader, opts.Stdout, delayedStderr, opts.Timeout, opts.Log)
+		wasExecuted, err := inject(
+			opts.LocalFile,
+			stdinWriter,
+			opts.Stdin,
+			stdoutReader,
+			opts.Stdout,
+			delayedStderr,
+			opts.Timeout,
+			opts.Log,
+		)
 		injectChan <- injectResult{
 			wasExecuted: wasExecuted,
 			err:         command.WrapCommandError(delayedStderr.Buffer(), err),
@@ -143,7 +153,13 @@ func Inject(opts InjectOptions) (bool, error) {
 
 	opts.Log.Debugf("Rerun command as binary was injected")
 	delayedStderr.Start()
-	return true, opts.Exec(opts.Ctx, opts.ScriptParams.Command, opts.Stdin, opts.Stdout, delayedStderr)
+	return true, opts.Exec(
+		opts.Ctx,
+		opts.ScriptParams.Command,
+		opts.Stdin,
+		opts.Stdout,
+		delayedStderr,
+	)
 }
 
 func inject(
@@ -181,7 +197,7 @@ func inject(
 	if err != nil {
 		return false, err
 	}
-	log.WithFields(logrus.Fields{"line": line}).Debug("received line after pong")
+	log.Debugf("received line after pong: line=%s", line)
 
 	lineStr := strings.TrimSpace(line)
 	if isInjectingOfBinaryNeeded(lineStr) {
@@ -224,7 +240,7 @@ func isInjectingOfBinaryNeeded(lineStr string) bool {
 }
 
 func getFileReader(localFile LocalFile, lineStr string) (io.ReadCloser, error) {
-	isArm := strings.TrimPrefix(lineStr, "ARM-") == "true"
+	isArm := strings.TrimPrefix(lineStr, "ARM-") == config.BoolTrue
 	return localFile(isArm)
 }
 

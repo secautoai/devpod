@@ -33,6 +33,7 @@ import { Controller, ControllerRenderProps } from "react-hook-form"
 import { useNavigate } from "react-router"
 import { Link as RouterLink } from "react-router-dom"
 import { useBorderColor } from "@/Theme"
+import { client } from "@/client/client"
 import { RECOMMENDED_PROVIDER_SOURCES, SIDEBAR_WIDTH } from "@/constants"
 import { useProvider, useProviders, useWorkspace, useWorkspaces } from "@/contexts"
 import { Plus } from "@/icons"
@@ -47,6 +48,7 @@ import { WorkspaceSourceInput } from "./WorkspaceSourceInput"
 import { COMMUNITY_WORKSPACE_EXAMPLES, WORKSPACE_EXAMPLES } from "./constants"
 import { FieldName, TCreateWorkspaceArgs, TFormValues, TSelectProviderOptions } from "./types"
 import { useCreateWorkspaceForm } from "./useCreateWorkspaceForm"
+import { SHARED_MACHINE_PREFIX } from "@/client/repo"
 
 export function CreateWorkspace() {
   const { ides } = useIDEs()
@@ -204,8 +206,9 @@ export function CreateWorkspace() {
                   create a workspace from can be a source as long as it adheres to the{" "}
                   <Link
                     fontWeight="bold"
-                    target="_blank"
-                    href="https://containers.dev/implementors/json_reference/">
+                    onClick={() =>
+                      client.openUrl("https://containers.dev/implementors/json_reference/")
+                    }>
                     Dev Container standard
                   </Link>
                   .
@@ -456,7 +459,7 @@ function ProviderInput({ options, field, onAddProviderClicked }: TProviderInputP
       return (
         provider?.state?.singleMachine &&
         workspace.provider?.name === provider.config?.name &&
-        workspace.machine?.machineId?.startsWith("devpod-shared-")
+        workspace.machine?.machineId?.startsWith(SHARED_MACHINE_PREFIX)
       )
     })?.id
   }, [provider, workspaces])
@@ -540,7 +543,11 @@ function IDEInput({ ides, field, onClick }: TIDEInputProps) {
             <ExampleCard
               name={ide.displayName}
               size="sm"
-              image={<IDEIcon ide={ide} />}
+              image={
+                <Box boxSize="full" p="2">
+                  <IDEIcon ide={ide} />
+                </Box>
+              }
               isSelected={isSelected}
               onClick={() => onClick(ide.name!)}
             />

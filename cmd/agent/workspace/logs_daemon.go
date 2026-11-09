@@ -13,14 +13,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// LogsDaemonCmd holds the cmd flags
+// LogsDaemonCmd holds the cmd flags.
 type LogsDaemonCmd struct {
 	*flags.GlobalFlags
 
 	ID string
 }
 
-// NewLogsDaemonCmd creates a new command
+// NewLogsDaemonCmd creates a new command.
 func NewLogsDaemonCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &LogsDaemonCmd{
 		GlobalFlags: flags,
@@ -29,8 +29,8 @@ func NewLogsDaemonCmd(flags *flags.GlobalFlags) *cobra.Command {
 		Use:   "logs-daemon",
 		Short: "Returns the daemon logs",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			return cmd.Run(context.Background())
+		RunE: func(cobraCmd *cobra.Command, _ []string) error {
+			return cmd.Run(cobraCmd.Context())
 		},
 	}
 	logsDaemonCmd.Flags().StringVar(&cmd.ID, "id", "", "The workspace id")
@@ -40,7 +40,12 @@ func NewLogsDaemonCmd(flags *flags.GlobalFlags) *cobra.Command {
 
 func (cmd *LogsDaemonCmd) Run(ctx context.Context) error {
 	// get workspace
-	shouldExit, _, err := agent.ReadAgentWorkspaceInfo(cmd.AgentDir, cmd.Context, cmd.ID, log.Default.ErrorStreamOnly())
+	shouldExit, _, err := agent.ReadAgentWorkspaceInfo(
+		cmd.AgentDir,
+		cmd.Context,
+		cmd.ID,
+		log.Default.ErrorStreamOnly(),
+	)
 	if err != nil {
 		return err
 	} else if shouldExit {

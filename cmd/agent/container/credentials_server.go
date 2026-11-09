@@ -24,7 +24,7 @@ import (
 
 const ExitCodeIO int = 64
 
-// CredentialsServerCmd holds the cmd flags
+// CredentialsServerCmd holds the cmd flags.
 type CredentialsServerCmd struct {
 	*flags.GlobalFlags
 
@@ -37,7 +37,7 @@ type CredentialsServerCmd struct {
 	GitUserSigningKey string
 }
 
-// NewCredentialsServerCmd creates a new command
+// NewCredentialsServerCmd creates a new command.
 func NewCredentialsServerCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &CredentialsServerCmd{
 		GlobalFlags: flags,
@@ -55,9 +55,13 @@ func NewCredentialsServerCmd(flags *flags.GlobalFlags) *cobra.Command {
 			return cmd.Run(c.Context(), port)
 		},
 	}
-	credentialsServerCmd.Flags().BoolVar(&cmd.ConfigureGitHelper, "configure-git-helper", false, "If true will configure git helper")
-	credentialsServerCmd.Flags().BoolVar(&cmd.ConfigureDockerHelper, "configure-docker-helper", false, "If true will configure docker helper")
-	credentialsServerCmd.Flags().BoolVar(&cmd.ForwardPorts, "forward-ports", false, "If true will automatically try to forward open ports within the container")
+	credentialsServerCmd.Flags().
+		BoolVar(&cmd.ConfigureGitHelper, "configure-git-helper", false, "If true will configure git helper")
+	credentialsServerCmd.Flags().
+		BoolVar(&cmd.ConfigureDockerHelper, "configure-docker-helper", false, "If true will configure docker helper")
+	credentialsServerCmd.Flags().
+		BoolVar(&cmd.ForwardPorts, "forward-ports", false,
+			"If true will automatically try to forward open ports within the container")
 	credentialsServerCmd.Flags().StringVar(&cmd.GitUserSigningKey, "git-user-signing-key", "", "")
 	credentialsServerCmd.Flags().StringVar(&cmd.User, "user", "", "The user to use")
 	_ = credentialsServerCmd.MarkFlagRequired("user")
@@ -65,7 +69,7 @@ func NewCredentialsServerCmd(flags *flags.GlobalFlags) *cobra.Command {
 	return credentialsServerCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *CredentialsServerCmd) Run(ctx context.Context, port int) error {
 	// create a grpc client
 	tunnelClient, err := tunnelserver.NewTunnelClient(os.Stdin, os.Stdout, true, ExitCodeIO)
@@ -131,29 +135,38 @@ func (cmd *CredentialsServerCmd) Run(ctx context.Context, port int) error {
 		}(cmd.User)
 	}
 
-	// configure git ssh signature helper
+	// configure git ssh signature helper — non-fatal so that a signing
+	// setup failure does not take down the entire credentials server
+	// (git/docker credential forwarding, port forwarding, etc.)
 	if cmd.GitUserSigningKey != "" {
 		decodedKey, err := base64.StdEncoding.DecodeString(cmd.GitUserSigningKey)
 		if err != nil {
-			return fmt.Errorf("decode git ssh signature key: %w", err)
+			log.Errorf("Failed to decode git SSH signing key, signing will be unavailable: %v", err)
+		} else {
+			err = gitsshsigning.ConfigureHelper(cmd.User, string(decodedKey), log)
+			if err != nil {
+				log.Errorf(
+					"Failed to configure git SSH signature helper, signing will be unavailable: %v",
+					err,
+				)
+			} else {
+				defer func(userName string) {
+					_ = gitsshsigning.RemoveHelper(userName)
+				}(cmd.User)
+			}
 		}
-		err = gitsshsigning.ConfigureHelper(cmd.User, string(decodedKey), log)
-		if err != nil {
-			return fmt.Errorf("configure git ssh signature helper: %w", err)
-		}
-
-		// cleanup when we are done
-		defer func(userName string) {
-			_ = gitsshsigning.RemoveHelper(userName)
-		}(cmd.User)
 	}
 
 	return credentials.RunCredentialsServer(ctx, port, tunnelClient, log)
 }
 
-func configureGitUserLocally(ctx context.Context, userName string, client tunnel.TunnelClient) error {
+func configureGitUserLocally(
+	ctx context.Context,
+	userName string,
+	client tunnel.TunnelClient,
+) error {
 	// get local credentials
-	localGitUser, err := gitcredentials.GetUser(userName)
+	localGitUser, err := gitcredentials.GetUser(userName, "")
 	if err != nil {
 		return err
 	} else if localGitUser.Name != "" && localGitUser.Email != "" {

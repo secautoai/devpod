@@ -12,51 +12,27 @@ import (
 	log2 "github.com/skevetter/log"
 )
 
-const (
-	// general
-	DEVPOD           = "DEVPOD"
-	DEVPOD_OS        = "DEVPOD_OS"
-	DEVPOD_ARCH      = "DEVPOD_ARCH"
-	DEVPOD_LOG_LEVEL = "DEVPOD_LOG_LEVEL"
-
-	// workspace
-	WORKSPACE_ID       = "WORKSPACE_ID"
-	WORKSPACE_UID      = "WORKSPACE_UID"
-	WORKSPACE_PICTURE  = "WORKSPACE_PICTURE"
-	WORKSPACE_FOLDER   = "WORKSPACE_FOLDER"
-	WORKSPACE_CONTEXT  = "WORKSPACE_CONTEXT"
-	WORKSPACE_ORIGIN   = "WORKSPACE_ORIGIN"
-	WORKSPACE_SOURCE   = "WORKSPACE_SOURCE"
-	WORKSPACE_PROVIDER = "WORKSPACE_PROVIDER"
-
-	// machine
-	MACHINE_ID       = "MACHINE_ID"
-	MACHINE_CONTEXT  = "MACHINE_CONTEXT"
-	MACHINE_FOLDER   = "MACHINE_FOLDER"
-	MACHINE_PROVIDER = "MACHINE_PROVIDER"
-
-	// provider
-	PROVIDER_ID      = "PROVIDER_ID"
-	PROVIDER_CONTEXT = "PROVIDER_CONTEXT"
-	PROVIDER_FOLDER  = "PROVIDER_FOLDER"
-
-	// pro
-	LOFT_PROJECT         = "LOFT_PROJECT"
-	LOFT_FILTER_BY_OWNER = "LOFT_FILTER_BY_OWNER"
-)
-
-const (
-	DEVCONTAINER_ID = "DEVCONTAINER_ID"
-)
-
-func combineOptions(resolvedOptions map[string]config.OptionValue, otherOptions map[string]config.OptionValue) map[string]config.OptionValue {
+func combineOptions(
+	resolvedOptions map[string]config.OptionValue,
+	otherOptions map[string]config.OptionValue,
+) map[string]config.OptionValue {
 	options := map[string]config.OptionValue{}
 	maps.Copy(options, resolvedOptions)
 	maps.Copy(options, otherOptions)
 	return options
 }
 
-func ToEnvironment(workspace *Workspace, machine *Machine, options map[string]config.OptionValue, extraEnv map[string]string) []string {
+// ToEnvironment builds the full environment for provider subprocess execution.
+// The provider name is available to subprocesses as PROVIDER_ID (set by GetBaseEnvironment).
+// Do NOT add DEVPOD_PROVIDER to the subprocess env — it is reserved by the --provider
+// CLI flag via inheritFlagsFromEnvironment in cmd/root.go, and setting it would override
+// the global provider selection for any child devpod process.
+func ToEnvironment(
+	workspace *Workspace,
+	machine *Machine,
+	options map[string]config.OptionValue,
+	extraEnv map[string]string,
+) []string {
 	env := ToOptions(workspace, machine, options)
 
 	// create environment variables for command
@@ -71,7 +47,11 @@ func ToEnvironment(workspace *Workspace, machine *Machine, options map[string]co
 	return osEnviron
 }
 
-func CombineOptions(workspace *Workspace, machine *Machine, options map[string]config.OptionValue) map[string]config.OptionValue {
+func CombineOptions(
+	workspace *Workspace,
+	machine *Machine,
+	options map[string]config.OptionValue,
+) map[string]config.OptionValue {
 	providerOptions := map[string]config.OptionValue{}
 	if options != nil {
 		providerOptions = combineOptions(providerOptions, options)
@@ -89,34 +69,34 @@ func ToOptionsWorkspace(workspace *Workspace) map[string]string {
 	retVars := map[string]string{}
 	if workspace != nil {
 		if workspace.ID != "" {
-			retVars[WORKSPACE_ID] = workspace.ID
+			retVars[config.EnvProviderWorkspaceID] = workspace.ID
 		}
 		if workspace.UID != "" {
-			retVars[WORKSPACE_UID] = workspace.UID
+			retVars[config.EnvProviderWorkspaceUID] = workspace.UID
 		}
-		retVars[WORKSPACE_FOLDER], _ = GetWorkspaceDir(workspace.Context, workspace.ID)
-		retVars[WORKSPACE_FOLDER] = filepath.ToSlash(retVars[WORKSPACE_FOLDER])
+		workspaceFolder, _ := GetWorkspaceDir(workspace.Context, workspace.ID)
+		retVars[config.EnvProviderWorkspaceFolder] = filepath.ToSlash(workspaceFolder)
 		if workspace.Context != "" {
-			retVars[WORKSPACE_CONTEXT] = workspace.Context
-			retVars[MACHINE_CONTEXT] = workspace.Context
+			retVars[config.EnvProviderWorkspaceContext] = workspace.Context
+			retVars[config.EnvProviderMachineContext] = workspace.Context
 		}
 		if workspace.Origin != "" {
-			retVars[WORKSPACE_ORIGIN] = filepath.ToSlash(workspace.Origin)
+			retVars[config.EnvProviderWorkspaceOrigin] = filepath.ToSlash(workspace.Origin)
 		}
 		if workspace.Picture != "" {
-			retVars[WORKSPACE_PICTURE] = workspace.Picture
+			retVars[config.EnvProviderWorkspacePicture] = workspace.Picture
 		}
-		retVars[WORKSPACE_SOURCE] = workspace.Source.String()
+		retVars[config.EnvProviderWorkspaceSource] = workspace.Source.String()
 		if workspace.Provider.Name != "" {
-			retVars[WORKSPACE_PROVIDER] = workspace.Provider.Name
+			retVars[config.EnvProviderWorkspaceProvider] = workspace.Provider.Name
 		}
 		if workspace.Machine.ID != "" {
-			retVars[MACHINE_ID] = workspace.Machine.ID
+			retVars[config.EnvProviderMachineID] = workspace.Machine.ID
 			machineDir, _ := GetMachineDir(workspace.Context, workspace.Machine.ID)
-			retVars[MACHINE_FOLDER] = filepath.ToSlash(machineDir)
+			retVars[config.EnvProviderMachineFolder] = filepath.ToSlash(machineDir)
 		}
 		if workspace.Pro != nil && workspace.Pro.Project != "" {
-			retVars[LOFT_PROJECT] = workspace.Pro.Project
+			retVars[config.EnvLoftProject] = workspace.Pro.Project
 		}
 		maps.Copy(retVars, GetBaseEnvironment(workspace.Context, workspace.Provider.Name))
 	}
@@ -127,22 +107,28 @@ func ToOptionsMachine(machine *Machine) map[string]string {
 	retVars := map[string]string{}
 	if machine != nil {
 		if machine.ID != "" {
-			retVars[MACHINE_ID] = machine.ID
+			retVars[config.EnvProviderMachineID] = machine.ID
 		}
-		retVars[MACHINE_FOLDER], _ = GetMachineDir(machine.Context, machine.ID)
-		retVars[MACHINE_FOLDER] = filepath.ToSlash(retVars[MACHINE_FOLDER])
+		retVars[config.EnvProviderMachineFolder], _ = GetMachineDir(machine.Context, machine.ID)
+		retVars[config.EnvProviderMachineFolder] = filepath.ToSlash(
+			retVars[config.EnvProviderMachineFolder],
+		)
 		if machine.Context != "" {
-			retVars[MACHINE_CONTEXT] = machine.Context
+			retVars[config.EnvProviderMachineContext] = machine.Context
 		}
 		if machine.Provider.Name != "" {
-			retVars[MACHINE_PROVIDER] = machine.Provider.Name
+			retVars[config.EnvProviderMachineProvider] = machine.Provider.Name
 		}
 		maps.Copy(retVars, GetBaseEnvironment(machine.Context, machine.Provider.Name))
 	}
 	return retVars
 }
 
-func ToOptions(workspace *Workspace, machine *Machine, options map[string]config.OptionValue) map[string]string {
+func ToOptions(
+	workspace *Workspace,
+	machine *Machine,
+	options map[string]config.OptionValue,
+) map[string]string {
 	providerOptions := CombineOptions(workspace, machine, options)
 	retVars := map[string]string{}
 	for optionName, optionValue := range providerOptions {
@@ -167,18 +153,22 @@ func GetBaseEnvironment(context, provider string) map[string]string {
 
 	// devpod binary
 	devPodBinary, _ := os.Executable()
-	retVars[DEVPOD] = filepath.ToSlash(devPodBinary)
-	retVars[DEVPOD_OS] = runtime.GOOS
-	retVars[DEVPOD_ARCH] = runtime.GOARCH
-	retVars[PROVIDER_ID] = provider
-	retVars[PROVIDER_CONTEXT] = context
+	retVars[config.EnvBinaryPath] = filepath.ToSlash(devPodBinary)
+	retVars[config.EnvOS] = runtime.GOOS
+	retVars[config.EnvArch] = runtime.GOARCH
+	retVars[config.EnvProviderID] = provider
+	retVars[config.EnvProviderContext] = context
 	providerFolder, _ := GetProviderDir(context, provider)
-	retVars[PROVIDER_FOLDER] = filepath.ToSlash(providerFolder)
-	retVars[DEVPOD_LOG_LEVEL] = log2.Default.GetLevel().String()
+	retVars[config.EnvProviderFolder] = filepath.ToSlash(providerFolder)
+	retVars[config.EnvLogLevel] = log2.Default.GetLevel().String()
 	return retVars
 }
 
-func GetProviderOptions(workspace *Workspace, server *Machine, devConfig *config.Config) map[string]config.OptionValue {
+func GetProviderOptions(
+	workspace *Workspace,
+	server *Machine,
+	devConfig *config.Config,
+) map[string]config.OptionValue {
 	retValues := map[string]config.OptionValue{}
 	providerName := ""
 	if workspace != nil {

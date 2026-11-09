@@ -16,18 +16,17 @@ import (
 	"time"
 
 	"github.com/blang/semver/v4"
-
-	managementv1 "github.com/loft-sh/api/v4/pkg/apis/management/v1"
-	storagev1 "github.com/loft-sh/api/v4/pkg/apis/storage/v1"
-	"github.com/loft-sh/api/v4/pkg/auth"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
+	managementv1 "github.com/skevetter/api/pkg/apis/management/v1"
+	storagev1 "github.com/skevetter/api/pkg/apis/storage/v1"
+	"github.com/skevetter/api/pkg/auth"
+	pkgconfig "github.com/skevetter/devpod/pkg/config"
+	devpodopen "github.com/skevetter/devpod/pkg/open"
 	"github.com/skevetter/devpod/pkg/platform/kube"
 	"github.com/skevetter/devpod/pkg/platform/project"
 	"github.com/skevetter/devpod/pkg/util"
 	"github.com/skevetter/devpod/pkg/version"
 	"github.com/skevetter/log"
-	"github.com/skratchdot/open-golang/open"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -35,10 +34,10 @@ import (
 
 var CacheFolder = ".loft"
 
-// DefaultCacheConfig is the path to the config
+// DefaultCacheConfig is the path to the config.
 var DefaultCacheConfig = "config.json"
 
-// Copied from platform `pkg/authentication/registry.go`
+// Copied from platform `pkg/authentication/registry.go`.
 var ErrAccessKeyNotFound = fmt.Errorf("platform access key not found. Please login again")
 
 const (
@@ -129,9 +128,16 @@ func (c *client) RefreshSelf(ctx context.Context) error {
 		return fmt.Errorf("create mangement client: %w", err)
 	}
 
-	c.self, err = managementClient.Loft().ManagementV1().Selves().Create(ctx, &managementv1.Self{}, metav1.CreateOptions{})
+	c.self, err = managementClient.Loft().
+		ManagementV1().
+		Selves().
+		Create(ctx, &managementv1.Self{}, metav1.CreateOptions{})
 	if err != nil {
-		return fmt.Errorf("error trying to reach platform: %w. This usually indicates you either have no connection to the platform or are not authenticated", err)
+		return fmt.Errorf(
+			"error trying to reach platform: %w. This usually indicates you either have no connection "+
+				"to the platform or are not authenticated",
+			err,
+		)
 	}
 
 	projectNamespacePrefix := project.DefaultProjectNamespacePrefix
@@ -155,13 +161,19 @@ func (c *client) Logout(ctx context.Context) error {
 		return fmt.Errorf("create management client: %w", err)
 	}
 
-	self, err := managementClient.Loft().ManagementV1().Selves().Create(ctx, &managementv1.Self{}, metav1.CreateOptions{})
+	self, err := managementClient.Loft().
+		ManagementV1().
+		Selves().
+		Create(ctx, &managementv1.Self{}, metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("get self: %w", err)
 	}
 
 	if self.Status.AccessKey != "" && self.Status.AccessKeyType == storagev1.AccessKeyTypeLogin {
-		err = managementClient.Loft().ManagementV1().OwnedAccessKeys().Delete(ctx, self.Status.AccessKey, metav1.DeleteOptions{})
+		err = managementClient.Loft().
+			ManagementV1().
+			OwnedAccessKeys().
+			Delete(ctx, self.Status.AccessKey, metav1.DeleteOptions{})
 		if err != nil {
 			return fmt.Errorf("delete access key: %w", err)
 		}
@@ -250,7 +262,10 @@ type keyStruct struct {
 
 func verifyHost(host string) error {
 	if !strings.HasPrefix(host, "https") {
-		return fmt.Errorf("cannot log into a non https loft instance '%s', please make sure you have TLS enabled", host)
+		return fmt.Errorf(
+			"cannot log into a non https loft instance '%s', please make sure you have TLS enabled",
+			host,
+		)
 	}
 
 	return nil
@@ -267,7 +282,11 @@ func (c *client) Version() (*auth.Version, error) {
 		return nil, err
 	}
 
-	raw, err := restClient.CoreV1().RESTClient().Get().RequestURI("/version").DoRaw(context.Background())
+	raw, err := restClient.CoreV1().
+		RESTClient().
+		Get().
+		RequestURI("/version").
+		DoRaw(context.Background())
 	if err != nil {
 		// User may need to login using --insecure flag to trust self-signed certificates
 		return nil, fmt.Errorf("get version: %w", err)
@@ -295,9 +314,14 @@ func (c *client) Login(host string, insecure bool, log log.Logger) error {
 	}
 
 	server := startServer(fmt.Sprintf(RedirectPath, host), keyChannel, log)
-	err = open.Run(fmt.Sprintf(LoginPath, host))
+	err = devpodopen.Run(fmt.Sprintf(LoginPath, host))
 	if err != nil {
-		return fmt.Errorf("couldn't open the login page in a browser: %w. Please use the --access-key flag for the login command. You can generate an access key here: %s", err, fmt.Sprintf(AccessKeyPath, host))
+		return fmt.Errorf(
+			"couldn't open the login page in a browser: %w. Please use the --access-key flag for the login command. "+
+				"You can generate an access key here: %s",
+			err,
+			fmt.Sprintf(AccessKeyPath, host),
+		)
 	} else {
 		log.Infof("If the browser does not open automatically, please navigate to %s", loginUrl)
 		msg := "If you have problems logging in, please navigate to %s/profile/access-keys, click on 'Create Access Key' and then login via '%s %s --access-key ACCESS_KEY"
@@ -305,7 +329,7 @@ func (c *client) Login(host string, insecure bool, log log.Logger) error {
 			msg += " --insecure"
 		}
 		msg += "'"
-		log.Infof(msg, host, "devpod pro login", host)
+		log.Infof(msg, host, pkgconfig.BinaryName+" pro login", host)
 		log.Infof("Logging into DevPod Pro...")
 
 		key = <-keyChannel
@@ -346,9 +370,16 @@ func (c *client) LoginWithAccessKey(host, accessKey string, insecure bool, force
 	if !force && c.config.AccessKey != "" {
 		managementClient, err := c.Management()
 		if err == nil {
-			self, err := managementClient.Loft().ManagementV1().Selves().Create(context.TODO(), &managementv1.Self{}, metav1.CreateOptions{})
-			if err == nil && self.Status.AccessKey != "" && self.Status.AccessKeyType == storagev1.AccessKeyTypeLogin {
-				_ = managementClient.Loft().ManagementV1().OwnedAccessKeys().Delete(context.TODO(), self.Status.AccessKey, metav1.DeleteOptions{})
+			self, err := managementClient.Loft().
+				ManagementV1().
+				Selves().
+				Create(context.TODO(), &managementv1.Self{}, metav1.CreateOptions{})
+			if err == nil && self.Status.AccessKey != "" &&
+				self.Status.AccessKeyType == storagev1.AccessKeyTypeLogin {
+				_ = managementClient.Loft().
+					ManagementV1().
+					OwnedAccessKeys().
+					Delete(context.TODO(), self.Status.AccessKey, metav1.DeleteOptions{})
 			}
 		}
 	}
@@ -364,13 +395,19 @@ func (c *client) LoginWithAccessKey(host, accessKey string, insecure bool, force
 	}
 
 	// try to get self
-	_, err = managementClient.Loft().ManagementV1().Selves().Create(context.TODO(), &managementv1.Self{}, metav1.CreateOptions{})
+	_, err = managementClient.Loft().
+		ManagementV1().
+		Selves().
+		Create(context.TODO(), &managementv1.Self{}, metav1.CreateOptions{})
 	if err != nil {
 		var urlError *url.Error
 		if errors.As(err, &urlError) {
 			var err x509.UnknownAuthorityError
 			if errors.As(urlError.Err, &err) {
-				return fmt.Errorf("unsafe login endpoint '%s', if you wish to login into an insecure loft endpoint run with the '--insecure' flag", c.config.Host)
+				return fmt.Errorf(
+					"unsafe login endpoint '%s', if you wish to login into an insecure loft endpoint run with the '--insecure' flag",
+					c.config.Host,
+				)
 			}
 		}
 
@@ -380,7 +417,7 @@ func (c *client) LoginWithAccessKey(host, accessKey string, insecure bool, force
 	return c.Save()
 }
 
-// VerifyVersion checks if the Loft version is compatible with this CLI version
+// VerifyVersion checks if the Loft version is compatible with this CLI version.
 func VerifyVersion(baseClient Client) error {
 	v, err := baseClient.Version()
 	if err != nil {
@@ -406,9 +443,23 @@ func VerifyVersion(baseClient Client) error {
 	}
 
 	if int(cliVersion.Major) > backendMajor {
-		return fmt.Errorf("unsupported %[1]s version %[2]s. Please downgrade your CLI to below v%[3]d.0.0 to support this version, as %[1]s v%[3]d.0.0 and newer versions are incompatible with v%[4]d.x.x", "DevPod Pro", v.Version, cliVersion.Major, backendMajor)
+		return fmt.Errorf(
+			"unsupported %[1]s version %[2]s. Please downgrade your CLI to below v%[3]d.0.0 to support this version, "+
+				"as %[1]s v%[3]d.0.0 and newer versions are incompatible with v%[4]d.x.x",
+			pkgconfig.ProductNamePro,
+			v.Version,
+			cliVersion.Major,
+			backendMajor,
+		)
 	} else if int(cliVersion.Major) < backendMajor {
-		return fmt.Errorf("unsupported %[1]s version %[2]s. Please upgrade your CLI to v%[3]d.0.0 or above to support this version, as %[1]s v%[3]d.0.0 and newer versions are incompatible with v%[4]d.x.x", "DevPod Pro", v.Version, backendMajor, cliVersion.Major)
+		return fmt.Errorf(
+			"unsupported %[1]s version %[2]s. Please upgrade your CLI to v%[3]d.0.0 or above to support this version, "+
+				"as %[1]s v%[3]d.0.0 and newer versions are incompatible with v%[4]d.x.x",
+			pkgconfig.ProductNamePro,
+			v.Version,
+			backendMajor,
+			cliVersion.Major,
+		)
 	}
 
 	return nil
@@ -418,7 +469,9 @@ func (c *client) restConfig(hostSuffix string) (*rest.Config, error) {
 	if c.config == nil {
 		return nil, errors.New("no config loaded")
 	} else if c.config.Host == "" || c.config.AccessKey == "" {
-		return nil, errors.New("not logged in, run 'devpod pro start' or 'devpod pro login [devpod-pro-url]'")
+		return nil, errors.New(
+			"not logged in, run 'devpod pro start' or 'devpod pro login [devpod-pro-url]'",
+		)
 	}
 
 	// build a rest config
@@ -460,7 +513,7 @@ func GetRestConfig(host, token string, insecure bool) (*rest.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	config.UserAgent = "devpod/" + version.GetVersion()
+	config.UserAgent = pkgconfig.BinaryName + "/" + version.GetVersion()
 
 	return config, nil
 }

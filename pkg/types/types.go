@@ -7,16 +7,14 @@ import (
 	"strconv"
 )
 
-var (
-	// ErrUnsupportedType is returned if the type is not implemented
-	ErrUnsupportedType = errors.New("unsupported type")
-)
+// ErrUnsupportedType is returned if the type is not implemented.
+var ErrUnsupportedType = errors.New("unsupported type")
 
-// StrIntArray string array to be used on JSON UnmarshalJSON
+// StrIntArray string array to be used on JSON UnmarshalJSON.
 type StrIntArray []string
 
 // UnmarshalJSON convert JSON object array of string or
-// a string format strings to a golang string array
+// a string format strings to a golang string array.
 func (sa *StrIntArray) UnmarshalJSON(data []byte) error {
 	var jsonObj any
 	err := json.Unmarshal(data, &jsonObj)
@@ -53,11 +51,11 @@ func (sa *StrIntArray) UnmarshalJSON(data []byte) error {
 	return ErrUnsupportedType
 }
 
-// StrArray string array to be used on JSON UnmarshalJSON
+// StrArray string array to be used on JSON UnmarshalJSON.
 type StrArray []string
 
 // UnmarshalJSON convert JSON object array of string or
-// a string format strings to a golang string array
+// a string format strings to a golang string array.
 func (sa *StrArray) UnmarshalJSON(data []byte) error {
 	var jsonObj any
 	err := json.Unmarshal(data, &jsonObj)

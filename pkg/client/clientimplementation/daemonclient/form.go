@@ -7,10 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/huh"
-	"github.com/ghodss/yaml"
-	managementv1 "github.com/loft-sh/api/v4/pkg/apis/management/v1"
-	storagev1 "github.com/loft-sh/api/v4/pkg/apis/storage/v1"
+	"charm.land/huh/v2"
+	managementv1 "github.com/skevetter/api/pkg/apis/management/v1"
+	storagev1 "github.com/skevetter/api/pkg/apis/storage/v1"
 	"github.com/skevetter/devpod/cmd/pro/provider/list"
 	"github.com/skevetter/devpod/pkg/encoding"
 	"github.com/skevetter/devpod/pkg/platform"
@@ -19,9 +18,15 @@ import (
 	"github.com/skevetter/devpod/pkg/platform/project"
 	"github.com/skevetter/log"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/yaml"
 )
 
-func createInstanceInteractive(ctx context.Context, baseClient platformclient.Client, id, uid, source, picture string, log log.Logger) (*managementv1.DevPodWorkspaceInstance, error) {
+func createInstanceInteractive(
+	ctx context.Context,
+	baseClient platformclient.Client,
+	id, uid, source, picture string,
+	log log.Logger,
+) (*managementv1.DevPodWorkspaceInstance, error) {
 	formCtx, cancelForm := context.WithCancel(ctx)
 	defer cancelForm()
 
@@ -123,7 +128,11 @@ func createInstanceInteractive(ctx context.Context, baseClient platformclient.Cl
 	return instance, nil
 }
 
-func updateInstanceInteractive(ctx context.Context, baseClient platformclient.Client, instance *managementv1.DevPodWorkspaceInstance, log log.Logger) (*managementv1.DevPodWorkspaceInstance, error) {
+func updateInstanceInteractive(
+	ctx context.Context,
+	baseClient platformclient.Client,
+	instance *managementv1.DevPodWorkspaceInstance,
+) (*managementv1.DevPodWorkspaceInstance, error) {
 	formCtx, cancelForm := context.WithCancel(ctx)
 	defer cancelForm()
 
@@ -141,7 +150,8 @@ func updateInstanceInteractive(ctx context.Context, baseClient platformclient.Cl
 			Value: t,
 		})
 
-		if instance.Spec.TemplateRef != nil && instance.Spec.TemplateRef.Name == template.GetName() {
+		if instance.Spec.TemplateRef != nil &&
+			instance.Spec.TemplateRef.Name == template.GetName() {
 			selectedTemplate = t
 		}
 	}
@@ -185,7 +195,8 @@ func updateInstanceInteractive(ctx context.Context, baseClient platformclient.Cl
 	if len(parameters) > 0 {
 		tRef := instance.Spec.TemplateRef
 		var existingParameters map[string]any
-		if tRef != nil && tRef.Name == selectedTemplate.GetName() && tRef.Version == selectedTemplateVersion {
+		if tRef != nil && tRef.Name == selectedTemplate.GetName() &&
+			tRef.Version == selectedTemplateVersion {
 			existingParameters = map[string]any{}
 			err = yaml.Unmarshal([]byte(instance.Spec.Parameters), &existingParameters)
 			if err != nil {
@@ -232,11 +243,13 @@ func updateInstanceInteractive(ctx context.Context, baseClient platformclient.Cl
 
 	newInstance := instance.DeepCopy()
 	// template
-	if instance.Spec.TemplateRef != nil && instance.Spec.TemplateRef.Name != selectedTemplate.GetName() {
+	if instance.Spec.TemplateRef != nil &&
+		instance.Spec.TemplateRef.Name != selectedTemplate.GetName() {
 		newInstance.Spec.TemplateRef.Name = selectedTemplate.GetName()
 	}
 	// version
-	if instance.Spec.TemplateRef != nil && instance.Spec.TemplateRef.Version != selectedTemplateVersion {
+	if instance.Spec.TemplateRef != nil &&
+		instance.Spec.TemplateRef.Version != selectedTemplateVersion {
 		newInstance.Spec.TemplateRef.Version = selectedTemplateVersion
 	}
 	// parameters
@@ -247,9 +260,11 @@ func updateInstanceInteractive(ctx context.Context, baseClient platformclient.Cl
 	return newInstance, nil
 }
 
-type ProjectOption = huh.Option[*managementv1.Project]
-type TemplateOption = huh.Option[*managementv1.DevPodWorkspaceTemplate]
-type CancelFunc = func()
+type (
+	ProjectOption  = huh.Option[*managementv1.Project]
+	TemplateOption = huh.Option[*managementv1.DevPodWorkspaceTemplate]
+	CancelFunc     = func()
+)
 
 var latestTemplateVersion = huh.Option[string]{
 	Key:   "latest",
@@ -273,7 +288,13 @@ func projectOptions(ctx context.Context, client platformclient.Client) ([]Projec
 	return projectOptions, nil
 }
 
-func getClusterOptions(ctx context.Context, client platformclient.Client, project *managementv1.Project, cancel CancelFunc, log log.Logger) []huh.Option[*managementv1.Cluster] {
+func getClusterOptions(
+	ctx context.Context,
+	client platformclient.Client,
+	project *managementv1.Project,
+	cancel CancelFunc,
+	log log.Logger,
+) []huh.Option[*managementv1.Cluster] {
 	opts := []huh.Option[*managementv1.Cluster]{}
 	if project == nil {
 		return opts
@@ -297,7 +318,13 @@ func getClusterOptions(ctx context.Context, client platformclient.Client, projec
 	return opts
 }
 
-func getTemplateOptions(ctx context.Context, client platformclient.Client, project *managementv1.Project, cancel CancelFunc, log log.Logger) []huh.Option[*managementv1.DevPodWorkspaceTemplate] {
+func getTemplateOptions(
+	ctx context.Context,
+	client platformclient.Client,
+	project *managementv1.Project,
+	cancel CancelFunc,
+	log log.Logger,
+) []huh.Option[*managementv1.DevPodWorkspaceTemplate] {
 	opts := []huh.Option[*managementv1.DevPodWorkspaceTemplate]{}
 	if project == nil {
 		return opts
@@ -332,7 +359,9 @@ func getTemplateOptions(ctx context.Context, client platformclient.Client, proje
 	return opts
 }
 
-func getTemplateVersionOptions(template *managementv1.DevPodWorkspaceTemplate) []huh.Option[string] {
+func getTemplateVersionOptions(
+	template *managementv1.DevPodWorkspaceTemplate,
+) []huh.Option[string] {
 	opts := []huh.Option[string]{latestTemplateVersion}
 	if template == nil {
 		return opts

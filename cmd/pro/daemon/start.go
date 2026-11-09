@@ -9,19 +9,18 @@ import (
 	"path/filepath"
 	"syscall"
 
-	managementv1 "github.com/loft-sh/api/v4/pkg/apis/management/v1"
-	daemon "github.com/skevetter/devpod/pkg/daemon/platform"
-	"github.com/skevetter/devpod/pkg/platform/client"
-
+	managementv1 "github.com/skevetter/api/pkg/apis/management/v1"
 	"github.com/skevetter/devpod/cmd/pro/completion"
 	proflags "github.com/skevetter/devpod/cmd/pro/flags"
 	"github.com/skevetter/devpod/pkg/config"
+	daemon "github.com/skevetter/devpod/pkg/daemon/platform"
+	"github.com/skevetter/devpod/pkg/platform/client"
 	providerpkg "github.com/skevetter/devpod/pkg/provider"
 	"github.com/skevetter/log"
 	"github.com/spf13/cobra"
 )
 
-// StartCmd holds the devpod daemon flags
+// StartCmd holds the devpod daemon flags.
 type StartCmd struct {
 	*proflags.GlobalFlags
 
@@ -29,7 +28,7 @@ type StartCmd struct {
 	Log  log.Logger
 }
 
-// NewStartCmd creates a new command
+// NewStartCmd creates a new command.
 func NewStartCmd(flags *proflags.GlobalFlags) *cobra.Command {
 	cmd := &StartCmd{
 		GlobalFlags: flags,
@@ -39,7 +38,13 @@ func NewStartCmd(flags *proflags.GlobalFlags) *cobra.Command {
 		Use:   "start",
 		Short: "Start the client daemon",
 		RunE: func(cobraCmd *cobra.Command, args []string) error {
-			devPodConfig, provider, err := findProProvider(cobraCmd.Context(), cmd.Context, cmd.Provider, cmd.Host, cmd.Log)
+			devPodConfig, provider, err := findProProvider(
+				cobraCmd.Context(),
+				cmd.Context,
+				cmd.Provider,
+				cmd.Host,
+				cmd.Log,
+			)
 			if err != nil {
 				return err
 			}
@@ -50,15 +55,30 @@ func NewStartCmd(flags *proflags.GlobalFlags) *cobra.Command {
 
 	c.Flags().StringVar(&cmd.Host, "host", "", "The pro instance to use")
 	_ = c.MarkFlagRequired("host")
-	_ = c.RegisterFlagCompletionFunc("host", func(rootCmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return completion.GetPlatformHostSuggestions(rootCmd, cmd.Context, cmd.Provider, args, toComplete, cmd.Owner, cmd.Log)
-	})
+	_ = c.RegisterFlagCompletionFunc(
+		"host",
+		func(rootCmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			return completion.GetPlatformHostSuggestions(
+				rootCmd,
+				cmd.Context,
+				cmd.Provider,
+				args,
+				toComplete,
+				cmd.Owner,
+				cmd.Log,
+			)
+		},
+	)
 
 	return c
 }
 
-func (cmd *StartCmd) Run(ctx context.Context, devPodConfig *config.Config, provider *providerpkg.ProviderConfig) error {
-	isDesktopControlled := os.Getenv("DEVPOD_UI") == "true"
+func (cmd *StartCmd) Run(
+	ctx context.Context,
+	devPodConfig *config.Config,
+	provider *providerpkg.ProviderConfig,
+) error {
+	isDesktopControlled := os.Getenv(config.EnvUI) == config.BoolTrue
 	dir, err := ensureDaemonDir(devPodConfig.DefaultContext, provider.Name)
 	if err != nil {
 		return err

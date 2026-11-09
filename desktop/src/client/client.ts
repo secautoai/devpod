@@ -6,12 +6,13 @@ import * as clipboard from "@tauri-apps/plugin-clipboard-manager"
 import * as dialog from "@tauri-apps/plugin-dialog"
 import * as fs from "@tauri-apps/plugin-fs"
 import * as log from "@tauri-apps/plugin-log"
+import * as opener from "@tauri-apps/plugin-opener"
 import * as os from "@tauri-apps/plugin-os"
 import * as process from "@tauri-apps/plugin-process"
-import * as shell from "@tauri-apps/plugin-shell"
 import { Command } from "@tauri-apps/plugin-shell"
 import * as updater from "@tauri-apps/plugin-updater"
 import { TSettings } from "@/contexts"
+import { BINARY_NAME } from "./repo"
 import { Release } from "@/gen"
 import { Result, Return, hasCapability, isError, noop } from "@/lib"
 import { TCommunityContributions, TProInstance, TUnsubscribeFn } from "@/types"
@@ -238,7 +239,7 @@ class Client {
         p = await path.join(p, "DevPod.log")
       }
 
-      shell.open(p)
+      opener.openPath(p)
     } catch {
       // noop for now
     }
@@ -315,13 +316,13 @@ class Client {
         const home_dir = await this.getEnv("HOME")
         // this will throw if doesn't exist
         const exists = await invoke<boolean>("file_exists", {
-          filepath: home_dir + "/.local/bin/devpod",
+          filepath: home_dir + `/.local/bin/${BINARY_NAME}`,
         })
 
         return Return.Value(exists)
       }
 
-      const result = await Command.create("run-path-devpod", ["version"]).execute()
+      const result = await Command.create(`run-path-${BINARY_NAME}`, ["version"]).execute()
       if (result.code !== 0) {
         return Return.Value(false)
       }
@@ -332,8 +333,8 @@ class Client {
     }
   }
 
-  public open(link: string): void {
-    shell.open(link)
+  public openUrl(link: string): void {
+    opener.openUrl(link)
   }
 
   public async quit(): Promise<Result<void>> {

@@ -28,7 +28,7 @@ export type TIDE = Readonly<{
   icon: TMaybe<string>
   iconDark: TMaybe<string>
   experimental: TMaybe<boolean>
-  group: TMaybe<"Primary" | "JetBrains" | "Other">
+  group: TMaybe<"Primary" | "Browser" | "JetBrains" | "Other">
 }>
 //#endregion
 
@@ -128,6 +128,10 @@ export type TConfigureProviderConfig = Readonly<{
 export type TProviderManager = Readonly<{
   remove: TRunnable<TWithProviderID> &
     Pick<UseMutationResult, "status" | "error"> & { target: TWithProviderID | undefined }
+  rename: TRunnable<{ oldProviderID: string; newProviderID: string }> &
+    Pick<UseMutationResult, "status" | "error"> & {
+      target: { oldProviderID: string; newProviderID: string } | undefined
+    }
 }>
 export type TCheckProviderUpdateResult = Readonly<{
   updateAvailable: boolean
@@ -200,6 +204,9 @@ export const SUPPORTED_IDES = [
   "fleet",
   "windsurf",
   "antigravity",
+  "bob",
+  "vscode-web",
+  "code-server",
 ] as const
 export type TSupportedIDE = (typeof SUPPORTED_IDES)[number]
 export type TImportWorkspaceConfig = Readonly<{

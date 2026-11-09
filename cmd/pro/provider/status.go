@@ -7,8 +7,9 @@ import (
 	"io"
 	"os"
 
-	storagev1 "github.com/loft-sh/api/v4/pkg/apis/storage/v1"
+	storagev1 "github.com/skevetter/api/pkg/apis/storage/v1"
 	"github.com/skevetter/devpod/cmd/pro/flags"
+	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/platform"
 	"github.com/skevetter/devpod/pkg/platform/client"
 	"github.com/skevetter/devpod/pkg/platform/remotecommand"
@@ -16,14 +17,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// StatusCmd holds the cmd flags
+// StatusCmd holds the cmd flags.
 type StatusCmd struct {
 	*flags.GlobalFlags
 
 	Log log.Logger
 }
 
-// NewStatusCmd creates a new command
+// NewStatusCmd creates a new command.
 func NewStatusCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &StatusCmd{
 		GlobalFlags: globalFlags,
@@ -42,7 +43,12 @@ func NewStatusCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	return c
 }
 
-func (cmd *StatusCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func (cmd *StatusCmd) Run(
+	ctx context.Context,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	baseClient, err := client.InitClientFromPath(ctx, cmd.Config)
 	if err != nil {
 		return err
@@ -52,7 +58,8 @@ func (cmd *StatusCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Writer
 	if err != nil {
 		return err
 	}
-	workspace, err := platform.FindInstanceInProject(ctx, baseClient, info.UID, info.ProjectName)
+	opts := platform.FindInstanceOptions{UID: info.UID, ProjectName: info.ProjectName}
+	workspace, err := platform.FindInstance(ctx, baseClient, opts)
 	if err != nil {
 		return err
 	} else if workspace == nil {
@@ -70,7 +77,13 @@ func (cmd *StatusCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Writer
 		return nil
 	}
 
-	conn, err := platform.DialInstance(baseClient, workspace, "getstatus", platform.OptionsFromEnv("DEVPOD_FLAGS_STATUS"), cmd.Log)
+	conn, err := platform.DialInstance(
+		baseClient,
+		workspace,
+		"getstatus",
+		platform.OptionsFromEnv(config.EnvFlagsStatus),
+		cmd.Log,
+	)
 	if err != nil {
 		return err
 	}

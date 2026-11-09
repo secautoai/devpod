@@ -6,109 +6,137 @@ import (
 	"os"
 
 	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 	"github.com/skevetter/devpod/e2e/framework"
 )
 
-var _ = DevPodDescribe("devpod context test suite", func() {
-	ginkgo.Context("testing context command", ginkgo.Label("context"), ginkgo.Ordered, func() {
-		ctx := context.Background()
-		initialDir, err := os.Getwd()
-		if err != nil {
-			panic(err)
-		}
+const ideIntelliJ = "intellij"
 
-		ginkgo.It("create a new context, switch to it and delete afterwards", func() {
-			f := framework.NewDefaultFramework(initialDir + "/bin")
+var _ = ginkgo.Describe(
+	"devpod context test suite",
+	ginkgo.Label("context"),
+	ginkgo.Ordered,
+	func() {
+		var initialDir string
 
-			err = f.DevPodContextCreate(ctx, "test-context")
-			framework.ExpectNoError(err)
-
-			err = f.DevPodContextUse(context.Background(), "test-context")
-			framework.ExpectNoError(err)
-
-			err = f.DevPodContextDelete(context.Background(), "test-context")
+		ginkgo.BeforeAll(func() {
+			var err error
+			initialDir, err = os.Getwd()
 			framework.ExpectNoError(err)
 		})
 
-		ginkgo.It("should use shared context in IDE commands", func() {
-			f := framework.NewDefaultFramework(initialDir + "/bin")
+		ginkgo.It(
+			"create a new context, switch to it and delete afterwards",
+			ginkgo.SpecTimeout(framework.GetTimeout()),
+			func(ctx context.Context) {
+				f := framework.NewDefaultFramework(initialDir + "/bin")
 
-			contextA := "test-ctx-a-ide"
-			contextB := "test-ctx-b-ide"
+				var err error
+				err = f.DevPodContextCreate(ctx, "test-context")
+				framework.ExpectNoError(err)
 
-			err = f.DevPodContextCreate(ctx, contextA)
-			framework.ExpectNoError(err)
+				ginkgo.DeferCleanup(func(cleanupCtx context.Context) {
+					cleanupErr := f.DevPodContextDelete(cleanupCtx, "test-context")
+					framework.ExpectNoError(cleanupErr)
+				})
 
-			err = f.DevPodContextCreate(ctx, contextB)
-			framework.ExpectNoError(err)
+				err = f.DevPodContextUse(ctx, "test-context")
+				framework.ExpectNoError(err)
+			},
+		)
 
-			ginkgo.DeferCleanup(func() {
-				_ = f.DevPodContextDelete(ctx, contextA)
-				_ = f.DevPodContextDelete(ctx, contextB)
-			})
+		ginkgo.It(
+			"should use shared context in IDE commands",
+			ginkgo.SpecTimeout(framework.GetTimeout()),
+			func(ctx context.Context) {
+				f := framework.NewDefaultFramework(initialDir + "/bin")
 
-			err = f.DevPodContextUse(ctx, contextA)
-			framework.ExpectNoError(err)
+				contextA := "test-ctx-a-ide"
+				contextB := "test-ctx-b-ide"
 
-			err = f.DevPodIDEUse(ctx, "intellij", "--context", contextB)
-			framework.ExpectNoError(err)
+				var err error
+				err = f.DevPodContextCreate(ctx, contextA)
+				framework.ExpectNoError(err)
+				ginkgo.DeferCleanup(func(cleanupCtx context.Context) {
+					_ = f.DevPodContextDelete(cleanupCtx, contextA)
+				})
 
-			output, err := f.DevPodIDEList(ctx, "--output", "json")
-			framework.ExpectNoError(err)
+				err = f.DevPodContextCreate(ctx, contextB)
+				framework.ExpectNoError(err)
+				ginkgo.DeferCleanup(func(cleanupCtx context.Context) {
+					err = f.DevPodContextDelete(cleanupCtx, contextB)
+					framework.ExpectNoError(err)
+				})
 
-			var ides []map[string]any
-			err = json.Unmarshal([]byte(output), &ides)
-			framework.ExpectNoError(err)
+				err = f.DevPodContextUse(ctx, contextA)
+				framework.ExpectNoError(err)
 
-			for _, ide := range ides {
-				if ide["name"] == "intellij" {
-					if defaultVal, exists := ide["default"]; exists && defaultVal == true {
-						ginkgo.Fail("IDE was incorrectly set in context-a instead of context-b")
+				err = f.DevPodIDEUse(ctx, ideIntelliJ, "--context", contextB)
+				framework.ExpectNoError(err)
+
+				output, err := f.DevPodIDEList(ctx, "--output", "json")
+				framework.ExpectNoError(err)
+
+				var ides []map[string]any
+				err = json.Unmarshal([]byte(output), &ides)
+				framework.ExpectNoError(err)
+				gomega.Expect(ides).NotTo(gomega.BeEmpty(), "IDE list should not be empty")
+
+				for _, ide := range ides {
+					if ide["name"] == ideIntelliJ {
+						if defaultVal, exists := ide["default"]; exists && defaultVal == true {
+							ginkgo.Fail("IDE was incorrectly set in context-a instead of context-b")
+						}
 					}
 				}
-			}
 
-			output, err = f.DevPodIDEList(ctx, "--context", contextB, "--output", "json")
-			framework.ExpectNoError(err)
+				output, err = f.DevPodIDEList(ctx, "--context", contextB, "--output", "json")
+				framework.ExpectNoError(err)
 
-			err = json.Unmarshal([]byte(output), &ides)
-			framework.ExpectNoError(err)
+				err = json.Unmarshal([]byte(output), &ides)
+				framework.ExpectNoError(err)
+				gomega.Expect(ides).
+					NotTo(gomega.BeEmpty(), "IDE list for context-b should not be empty")
 
-			intellijFound := false
-			for _, ide := range ides {
-				if ide["name"] == "intellij" {
-					if defaultVal, exists := ide["default"]; exists && defaultVal == true {
-						intellijFound = true
-						break
+				intellijFound := false
+				for _, ide := range ides {
+					if ide["name"] == ideIntelliJ {
+						if defaultVal, exists := ide["default"]; exists && defaultVal == true {
+							intellijFound = true
+							break
+						}
 					}
 				}
-			}
-			if !intellijFound {
-				ginkgo.Fail("IDE was not set in context-b as expected")
-			}
+				gomega.Expect(intellijFound).To(
+					gomega.BeTrue(), "IDE should be set as default in context-b",
+				)
 
-			err = os.Setenv("DEVPOD_CONTEXT", contextB)
-			framework.ExpectNoError(err)
+				ginkgo.GinkgoT().Setenv("DEVPOD_CONTEXT", contextB)
 
-			output, err = f.DevPodIDEList(ctx, "--output", "json")
-			framework.ExpectNoError(err)
+				output, err = f.DevPodIDEList(ctx, "--output", "json")
+				framework.ExpectNoError(err)
 
-			err = json.Unmarshal([]byte(output), &ides)
-			framework.ExpectNoError(err)
+				err = json.Unmarshal([]byte(output), &ides)
+				framework.ExpectNoError(err)
+				gomega.Expect(ides).NotTo(
+					gomega.BeEmpty(),
+					"IDE list via DEVPOD_CONTEXT should not be empty",
+				)
 
-			intellijFound = false
-			for _, ide := range ides {
-				if ide["name"] == "intellij" {
-					if defaultVal, exists := ide["default"]; exists && defaultVal == true {
-						intellijFound = true
-						break
+				intellijFound = false
+				for _, ide := range ides {
+					if ide["name"] == ideIntelliJ {
+						if defaultVal, exists := ide["default"]; exists && defaultVal == true {
+							intellijFound = true
+							break
+						}
 					}
 				}
-			}
-			if !intellijFound {
-				ginkgo.Fail("Selecting context-b using environment variable DEVPOD_CONTEXT does not work as expected")
-			}
-		})
-
-	})
-})
+				gomega.Expect(intellijFound).To(
+					gomega.BeTrue(),
+					"DEVPOD_CONTEXT env var should select context-b with intellij as default IDE",
+				)
+			},
+		)
+	},
+)

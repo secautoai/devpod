@@ -1,4 +1,5 @@
 import { client } from "@/client/client"
+import { BINARY_NAME } from "@/client/repo"
 import { TActionObj } from "@/contexts/DevPodContext/action"
 import { TWorkspace } from "@/types"
 import { useToast } from "@chakra-ui/react"
@@ -8,7 +9,7 @@ import JSZip from "jszip"
 
 export function useStoreTroubleshoot() {
   const toast = useToast()
-  const { mutate, isLoading: isStoring } = useMutation({
+  const { mutate, isPending: isStoring } = useMutation({
     mutationFn: async ({
       workspace,
       workspaceActions,
@@ -24,7 +25,7 @@ export function useStoreTroubleshoot() {
 
       // user cancelled "save file" dialog
       if (targetFolder === null) {
-        return
+        return false
       }
 
       const unwrappedLogFiles: [src: [string], targetFolder: string][] = logFiles
@@ -68,9 +69,9 @@ export function useStoreTroubleshoot() {
 
       const out = await zip.generateAsync({ type: "uint8array" })
 
-      await client.writeFile([targetFolder, "devpod_troubleshoot.zip"], out)
+      await client.writeFile([targetFolder, `${BINARY_NAME}_troubleshoot.zip`], out)
 
-      client.open(targetFolder)
+      return true
     },
     onError(error) {
       toast({
@@ -79,6 +80,16 @@ export function useStoreTroubleshoot() {
         isClosable: true,
         duration: 30_000, // 30 sec
       })
+    },
+    onSuccess(fileWasSaved) {
+      if (fileWasSaved) {
+        toast({
+          title: "Troubleshooting data saved successfully",
+          status: "success",
+          isClosable: true,
+          duration: 5_000,
+        })
+      }
     },
   })
 

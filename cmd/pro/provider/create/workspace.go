@@ -7,8 +7,9 @@ import (
 	"io"
 	"os"
 
-	managementv1 "github.com/loft-sh/api/v4/pkg/apis/management/v1"
+	managementv1 "github.com/skevetter/api/pkg/apis/management/v1"
 	"github.com/skevetter/devpod/cmd/pro/flags"
+	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/platform"
 	"github.com/skevetter/devpod/pkg/platform/client"
 	"github.com/skevetter/devpod/pkg/platform/form"
@@ -20,14 +21,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// WorkspaceCmd holds the cmd flags
+// WorkspaceCmd holds the cmd flags.
 type WorkspaceCmd struct {
 	*flags.GlobalFlags
 
 	Log log.Logger
 }
 
-// NewWorkspaceCmd creates a new command
+// NewWorkspaceCmd creates a new command.
 func NewWorkspaceCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &WorkspaceCmd{
 		GlobalFlags: globalFlags,
@@ -46,7 +47,12 @@ func NewWorkspaceCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	return c
 }
 
-func (cmd *WorkspaceCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
+func (cmd *WorkspaceCmd) Run(
+	ctx context.Context,
+	stdin io.Reader,
+	stdout io.Writer,
+	stderr io.Writer,
+) error {
 	baseClient, err := client.InitClientFromPath(ctx, cmd.Config)
 	if err != nil {
 		return err
@@ -76,16 +82,25 @@ func (cmd *WorkspaceCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Wri
 	}
 
 	// Info through env, right now only used by CLI
-	workspaceID := os.Getenv(provider.WORKSPACE_ID)
-	workspaceUID := os.Getenv(provider.WORKSPACE_UID)
-	workspaceFolder := os.Getenv(provider.WORKSPACE_FOLDER)
-	workspaceContext := os.Getenv(provider.WORKSPACE_CONTEXT)
+	workspaceID := os.Getenv(config.EnvProviderWorkspaceID)
+	workspaceUID := os.Getenv(config.EnvProviderWorkspaceUID)
+	workspaceFolder := os.Getenv(config.EnvProviderWorkspaceFolder)
+	workspaceContext := os.Getenv(config.EnvProviderWorkspaceContext)
 	workspacePicture := os.Getenv(platform.WorkspacePictureEnv)
 	workspaceSource := os.Getenv(platform.WorkspaceSourceEnv)
 	if workspaceUID == "" || workspaceID == "" || workspaceFolder == "" {
-		return fmt.Errorf("workspaceID, workspaceUID or workspace folder not found: %s, %s, %s", workspaceID, workspaceUID, workspaceFolder)
+		return fmt.Errorf(
+			"workspaceID, workspaceUID or workspace folder not found: %s, %s, %s",
+			workspaceID,
+			workspaceUID,
+			workspaceFolder,
+		)
 	}
-	instance, err := platform.FindInstance(ctx, baseClient, workspaceUID)
+	instance, err := platform.FindInstance(
+		ctx,
+		baseClient,
+		platform.FindInstanceOptions{UID: workspaceUID},
+	)
 	if err != nil {
 		return err
 	}
@@ -97,7 +112,15 @@ func (cmd *WorkspaceCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Wri
 		return fmt.Errorf("unable to create new instance through CLI if stdin is not a terminal")
 	}
 
-	instance, err = form.CreateInstance(ctx, baseClient, workspaceID, workspaceUID, workspaceSource, workspacePicture, cmd.Log)
+	instance, err = form.CreateInstance(
+		ctx,
+		baseClient,
+		workspaceID,
+		workspaceUID,
+		workspaceSource,
+		workspacePicture,
+		cmd.Log,
+	)
 	if err != nil {
 		return err
 	}
@@ -127,7 +150,12 @@ func (cmd *WorkspaceCmd) Run(ctx context.Context, stdin io.Reader, stdout io.Wri
 	return nil
 }
 
-func createInstance(ctx context.Context, client client.Client, instance *managementv1.DevPodWorkspaceInstance, log log.Logger) (*managementv1.DevPodWorkspaceInstance, error) {
+func createInstance(
+	ctx context.Context,
+	client client.Client,
+	instance *managementv1.DevPodWorkspaceInstance,
+	log log.Logger,
+) (*managementv1.DevPodWorkspaceInstance, error) {
 	managementClient, err := client.Management()
 	if err != nil {
 		return nil, err

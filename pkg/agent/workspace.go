@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/loft-sh/api/v4/pkg/devpod"
 	"github.com/moby/patternmatcher/ignorefile"
+	"github.com/skevetter/api/pkg/devsy"
 	"github.com/skevetter/devpod/pkg/command"
 	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/git"
@@ -28,7 +28,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var extraSearchLocations = []string{"/home/devpod/.devpod/agent", "/opt/devpod/agent", "/var/lib/devpod/agent", "/var/devpod/agent"}
+var extraSearchLocations = []string{
+	"/home/devpod/" + config.ConfigDirName + "/agent",
+	"/opt/devpod/agent",
+	"/var/lib/devpod/agent",
+	ContainerDataDir + "/agent",
+}
 
 var ErrFindAgentHomeFolder = fmt.Errorf("couldn't find devpod home directory")
 
@@ -47,7 +52,7 @@ func findDir(agentFolder string, validate func(path string) bool) string {
 	}
 
 	// check environment
-	homeFolder := os.Getenv(config.DEVPOD_HOME)
+	homeFolder := os.Getenv(config.EnvHome)
 	if homeFolder != "" {
 		homeFolder = filepath.Join(homeFolder, "agent")
 		if !validate(homeFolder) {
@@ -60,7 +65,7 @@ func findDir(agentFolder string, validate func(path string) bool) string {
 	// check home folder first
 	homeDir, _ := util.UserHomeDir()
 	if homeDir != "" {
-		homeDir = filepath.Join(homeDir, ".devpod", "agent")
+		homeDir = filepath.Join(homeDir, config.ConfigDirName, "agent")
 		if validate(homeDir) {
 			return homeDir
 		}
@@ -69,7 +74,7 @@ func findDir(agentFolder string, validate func(path string) bool) string {
 	// check root folder
 	homeDir, _ = command.GetHome("root")
 	if homeDir != "" {
-		homeDir = filepath.Join(homeDir, ".devpod", "agent")
+		homeDir = filepath.Join(homeDir, config.ConfigDirName, "agent")
 		if validate(homeDir) {
 			return homeDir
 		}
@@ -143,16 +148,16 @@ func isDirExecutable(dir string) (bool, error) {
 		}
 	}
 
-	err := os.MkdirAll(dir, 0777)
-	if err != nil {
+	// #nosec G301,G703 -- TODO Consider using a more secure permission setting and ownership if needed.
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, err
 	}
 
-	testFile := filepath.Join(dir, "devpod_test.sh")
-	err = os.WriteFile(testFile, []byte(`#!/bin/sh
+	testFile := filepath.Join(dir, config.BinaryName+"_test.sh")
+	// #nosec G306,G703 -- TODO Consider using a more secure permission setting and ownership if needed.
+	if err := os.WriteFile(testFile, []byte(`#!/bin/sh
 echo DevPod
-`), 0755)
-	if err != nil {
+`), 0o755); err != nil {
 		return false, err
 	}
 	defer func() { _ = os.Remove(testFile) }()
@@ -231,8 +236,9 @@ func CreateAgentWorkspaceDir(agentFolder, context, workspaceID string) (string, 
 	// workspace folder
 	workspaceDir := filepath.Join(homeFolder, "contexts", context, "workspaces", workspaceID)
 
+	// #nosec G301 -- TODO Consider using a more secure permission setting and ownership if needed.
 	// create workspace folder
-	err = os.MkdirAll(workspaceDir, 0755)
+	err = os.MkdirAll(workspaceDir, 0o755)
 	if err != nil {
 		return "", err
 	}
@@ -267,7 +273,9 @@ func CloneRepositoryForWorkspace(
 	// remove the credential helper or otherwise we will receive strange errors within the container
 	defer func() {
 		if helper != "" {
-			if err := gitcredentials.RemoveHelperFromPath(gitcredentials.GetLocalGitConfigPath(workspaceDir)); err != nil {
+			if err := gitcredentials.RemoveHelperFromPath(
+				gitcredentials.GetLocalGitConfigPath(workspaceDir),
+			); err != nil {
 				log.Errorf("Remove git credential helper: %v", err)
 			}
 		}
@@ -277,7 +285,9 @@ func CloneRepositoryForWorkspace(
 	if !command.Exists("git") {
 		local, _ := agentConfig.Local.Bool()
 		if local {
-			return fmt.Errorf("seems like git isn't installed on your system. Please make sure to install git and make it available in the PATH")
+			return fmt.Errorf(
+				"seems like git isn't installed on your system. Please make sure to install git and make it available in the PATH",
+			)
 		}
 		if err := git.InstallBinary(log); err != nil {
 			return err
@@ -293,7 +303,9 @@ func CloneRepositoryForWorkspace(
 
 	// setup private ssh key if passed in
 	extraEnv := []string{}
-	gitSshCredentials := append(options.Platform.UserCredentials.GitSsh, options.Platform.ProjectCredentials.GitSsh...)
+	gitSshCredentials := append(
+		options.Platform.UserCredentials.GitSsh,
+		options.Platform.ProjectCredentials.GitSsh...)
 	if len(gitSshCredentials) > 0 {
 		keys := []string{}
 		for _, key := range gitSshCredentials {
@@ -309,7 +321,13 @@ func CloneRepositoryForWorkspace(
 	}
 
 	// run git command
-	gitInfo := git.NewGitInfo(source.GitRepository, source.GitBranch, source.GitCommit, source.GitPRReference, source.GitSubPath)
+	gitInfo := git.NewGitInfo(
+		source.GitRepository,
+		source.GitBranch,
+		source.GitCommit,
+		source.GitPRReference,
+		source.GitSubPath,
+	)
 
 	// should run with platform git cache?
 	platformGitcacheEnabled := options.Platform.Enabled && options.Platform.RunnerSocket != ""
@@ -333,21 +351,25 @@ func CloneRepositoryForWorkspace(
 		grpcClient, err := grpc.NewClient(
 			"unix://"+options.Platform.RunnerSocket,
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithIdleTimeout(180*time.Minute), // cloning can take a long time for large monorepos
+			grpc.WithIdleTimeout(
+				180*time.Minute,
+			), // cloning can take a long time for large monorepos
 		)
 		if err != nil {
 			return fmt.Errorf("create platform gitcache client: %w", err)
 		}
 
 		// marshal options
-		jsonOptions, err := json.Marshal(&devpod.CloneOptions{
+		jsonOptions, err := json.Marshal(&devsy.CloneOptions{
 			Repository:        source.GitRepository,
 			Branch:            source.GitBranch,
 			Commit:            source.GitCommit,
 			PRReference:       source.GitPRReference,
 			SubPath:           source.GitSubPath,
 			CredentialsHelper: helper,
-			ExtraEnv:          append(git.GetDefaultExtraEnv(options.StrictHostKeyChecking), extraEnv...),
+			ExtraEnv: append(
+				git.GetDefaultExtraEnv(options.StrictHostKeyChecking),
+				extraEnv...),
 		})
 		if err != nil {
 			return fmt.Errorf("marshal git options: %w", err)
@@ -355,7 +377,7 @@ func CloneRepositoryForWorkspace(
 
 		// create client
 		log.Infof("Cloning repository %s in platform", source.GitRepository)
-		_, err = devpod.NewRunnerClient(grpcClient).Clone(ctx, &devpod.CloneRequest{
+		_, err = devsy.NewRunnerClient(grpcClient).Clone(ctx, &devsy.CloneRequest{
 			TargetPath: workspaceDir,
 			Options:    string(jsonOptions),
 		})
@@ -368,7 +390,11 @@ func CloneRepositoryForWorkspace(
 
 			// cleanup workspace dir if clone failed, otherwise we won't try to clone again when rebuilding this workspace
 			if cleanupErr := cleanupWorkspaceDir(workspaceDir); cleanupErr != nil {
-				return fmt.Errorf("clone repository (with gitcache): %w, cleanup workspace: %w", err, cleanupErr)
+				return fmt.Errorf(
+					"clone repository (with gitcache): %w, cleanup workspace: %w",
+					err,
+					cleanupErr,
+				)
 			}
 			return fmt.Errorf("clone repository (with gitcache): %w", err)
 		}
@@ -379,7 +405,15 @@ func CloneRepositoryForWorkspace(
 		if options.Platform.GitSkipLFS {
 			log.Info("Skipping Git LFS")
 		}
-		err := git.CloneRepositoryWithEnv(ctx, gitInfo, extraEnv, workspaceDir, helper, options.StrictHostKeyChecking, log, getGitOptions(options)...)
+		err := git.CloneRepositoryWithEnv(
+			ctx,
+			gitInfo,
+			extraEnv,
+			workspaceDir,
+			helper,
+			options.StrictHostKeyChecking,
+			log,
+			getGitOptions(options)...)
 		if err != nil {
 			// cleanup workspace dir if clone failed, otherwise we won't try to clone again when rebuilding this workspace
 			if cleanupErr := cleanupWorkspaceDir(workspaceDir); cleanupErr != nil {
@@ -392,20 +426,22 @@ func CloneRepositoryForWorkspace(
 	log.Done("cloned repository")
 
 	// Get .devpodignore files to exclude
-	f, err := os.Open(filepath.Join(workspaceDir, ".devpodignore"))
+	f, err := os.Open(
+		filepath.Join(workspaceDir, config.IgnoreFileName),
+	) // #nosec G304 -- path is controlled by the application, not user input
 	if err != nil {
 		return nil
 	}
 	excludes, err := ignorefile.ReadAll(f)
 	if err != nil {
-		log.Warn(".devpodignore file is invalid : ", err)
+		log.Warn(config.IgnoreFileName+" file is invalid : ", err)
 		return nil
 	}
 	// Remove files from workspace content folder
 	for _, exclude := range excludes {
 		_ = os.RemoveAll(filepath.Join(workspaceDir, exclude))
 	}
-	log.Debug("Ignore files from .devpodignore ", excludes)
+	log.Debug("Ignore files from "+config.IgnoreFileName+" ", excludes)
 
 	return nil
 }
@@ -416,7 +452,10 @@ func getGitOptions(options provider2.CLIOptions) []git.Option {
 		gitOpts = append(gitOpts, git.WithCloneStrategy(options.GitCloneStrategy))
 	}
 	if options.Platform.GitCloneStrategy != "" {
-		gitOpts = append(gitOpts, git.WithCloneStrategy(git.CloneStrategy(options.Platform.GitCloneStrategy)))
+		gitOpts = append(
+			gitOpts,
+			git.WithCloneStrategy(git.CloneStrategy(options.Platform.GitCloneStrategy)),
+		)
 	}
 	if options.Platform.GitSkipLFS {
 		gitOpts = append(gitOpts, git.WithSkipLFS())

@@ -11,7 +11,7 @@ import (
 
 // ServeAgent will be a simple http file server that will expose our
 // freshly compiled devpod binaries to be downloaded as agents.
-// useful for non-linux runners
+// useful for non-linux runners.
 func ServeAgent() {
 	// Specify the directory containing the files you want to serve
 	dir := "bin"
@@ -24,8 +24,9 @@ func ServeAgent() {
 	// Create a file server handler for the specified directory
 	fileServer := http.FileServer(http.Dir(dir))
 
-	// Register the file server handler to serve files under the /files route
-	http.Handle("/files/", http.StripPrefix("/files", fileServer))
+	// Use a dedicated ServeMux to avoid conflicts with http.DefaultServeMux
+	mux := http.NewServeMux()
+	mux.Handle("/files/", http.StripPrefix("/files", fileServer))
 
 	ip := getIP()
 
@@ -40,10 +41,10 @@ func ServeAgent() {
 		log.Fatal(err)
 	}
 
-	// Start the HTTP server on port 8080
 	log.Printf("Server started on %s", addr)
 
-	err = http.Serve(listener, nil)
+	// #nosec G114 -- test-only agent file server, no timeout needed
+	err = http.Serve(listener, mux)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -67,13 +68,15 @@ func getIP() string {
 			switch v := addr.(type) {
 			case *net.IPAddr:
 				if v.IP.To4() != nil {
-					if v.IP.DefaultMask().String() == "ffffff00" || v.IP.DefaultMask().String() == "ff000000" {
+					if v.IP.DefaultMask().String() == "ffffff00" ||
+						v.IP.DefaultMask().String() == "ff000000" {
 						return v.IP.String()
 					}
 				}
 			case *net.IPNet:
 				if v.IP.To4() != nil {
-					if v.IP.DefaultMask().String() == "ffffff00" || v.IP.DefaultMask().String() == "ff000000" {
+					if v.IP.DefaultMask().String() == "ffffff00" ||
+						v.IP.DefaultMask().String() == "ff000000" {
 						return v.IP.String()
 					}
 				}

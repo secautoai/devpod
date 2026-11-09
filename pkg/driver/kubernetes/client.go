@@ -20,7 +20,7 @@ type Client struct {
 	config *rest.Config
 }
 
-// NewClient constructs a struct wrapping the kubernetes client that is used by the kubernetes driver
+// NewClient constructs a struct wrapping the kubernetes client that is used by the kubernetes driver.
 func NewClient(kubeConfig, kubeContext string) (*Client, string, error) {
 	if kubeConfig == "" {
 		kubeConfig = os.Getenv("KUBECONFIG")
@@ -78,7 +78,11 @@ func (c *Client) FullLogs(ctx context.Context, namespace, pod, container string)
 	return io.ReadAll(logs)
 }
 
-func (c *Client) Logs(ctx context.Context, namespace, pod, container string, follow bool) (io.ReadCloser, error) {
+func (c *Client) Logs(
+	ctx context.Context,
+	namespace, pod, container string,
+	follow bool,
+) (io.ReadCloser, error) {
 	return c.client.CoreV1().Pods(namespace).GetLogs(pod, &corev1.PodLogOptions{
 		Container: container,
 		Follow:    follow,
@@ -95,7 +99,7 @@ type ExecStreamOptions struct {
 	Command   []string
 }
 
-// Exec executes a kubectl exec with given transport round tripper and upgrader
+// Exec executes a kubectl exec with given transport round tripper and upgrader.
 func (c *Client) Exec(ctx context.Context, options *ExecStreamOptions) error {
 	client, err := kubernetes.NewForConfig(c.config)
 	if err != nil {

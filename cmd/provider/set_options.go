@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/cmd/completion"
 	"github.com/skevetter/devpod/cmd/flags"
 	"github.com/skevetter/devpod/pkg/config"
@@ -14,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// SetOptionsCmd holds the use cmd flags
+// SetOptionsCmd holds the use cmd flags.
 type SetOptionsCmd struct {
 	*flags.GlobalFlags
 
@@ -25,7 +24,7 @@ type SetOptionsCmd struct {
 	Options       []string
 }
 
-// NewSetOptionsCmd creates a new command
+// NewSetOptionsCmd creates a new command.
 func NewSetOptionsCmd(f *flags.GlobalFlags) *cobra.Command {
 	cmd := &SetOptionsCmd{
 		GlobalFlags: f,
@@ -33,27 +32,39 @@ func NewSetOptionsCmd(f *flags.GlobalFlags) *cobra.Command {
 	setOptionsCmd := &cobra.Command{
 		Use:   "set-options [provider]",
 		Short: "Sets options for the given provider. Similar to 'devpod provider use', but does not switch the default provider.",
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
 			logger := log.Logger(log.Default)
 			if cmd.Dry {
 				logger = log.Default.ErrorStreamOnly()
 			}
 
-			return cmd.Run(context.Background(), args, logger)
+			return cmd.Run(cobraCmd.Context(), args, logger)
 		},
 		ValidArgsFunction: func(rootCmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-			return completion.GetProviderSuggestions(rootCmd, cmd.Context, cmd.Provider, args, toComplete, cmd.Owner, log.Default)
+			return completion.GetProviderSuggestions(
+				rootCmd,
+				cmd.Context,
+				cmd.Provider,
+				args,
+				toComplete,
+				cmd.Owner,
+				log.Default,
+			)
 		},
 	}
 
-	setOptionsCmd.Flags().BoolVar(&cmd.SingleMachine, "single-machine", false, "If enabled will use a single machine for all workspaces")
-	setOptionsCmd.Flags().BoolVar(&cmd.Reconfigure, "reconfigure", false, "If enabled will not merge existing provider config")
-	setOptionsCmd.Flags().StringArrayVarP(&cmd.Options, "option", "o", []string{}, "Provider option in the form KEY=VALUE")
-	setOptionsCmd.Flags().BoolVar(&cmd.Dry, "dry", false, "Dry will not persist the options to file and instead return the new filled options")
+	setOptionsCmd.Flags().
+		BoolVar(&cmd.SingleMachine, "single-machine", false, "If enabled will use a single machine for all workspaces")
+	setOptionsCmd.Flags().
+		BoolVar(&cmd.Reconfigure, "reconfigure", false, "If enabled will not merge existing provider config")
+	setOptionsCmd.Flags().
+		StringArrayVarP(&cmd.Options, "option", "o", []string{}, "Provider option in the form KEY=VALUE")
+	setOptionsCmd.Flags().
+		BoolVar(&cmd.Dry, "dry", false, "Dry will not persist the options to file and instead return the new filled options")
 	return setOptionsCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *SetOptionsCmd) Run(ctx context.Context, args []string, log log.Logger) error {
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
 	if err != nil {
@@ -68,7 +79,7 @@ func (cmd *SetOptionsCmd) Run(ctx context.Context, args []string, log log.Logger
 	}
 	log.Debugf("providerName=%+v", providerName)
 
-	if os.Getenv("DEVPOD_UI") == "" && len(cmd.Options) == 0 {
+	if os.Getenv(config.EnvUI) == "" && len(cmd.Options) == 0 {
 		return fmt.Errorf("please specify option")
 	}
 	log.Debugf("Options=%+v", cmd.Options)
@@ -78,18 +89,17 @@ func (cmd *SetOptionsCmd) Run(ctx context.Context, args []string, log log.Logger
 		return err
 	}
 
-	devPodConfig, err = setOptions(
-		ctx,
-		providerWithOptions.Config,
-		devPodConfig.DefaultContext,
-		cmd.Options,
-		cmd.Reconfigure,
-		cmd.Dry,
-		cmd.Dry,
-		false,
-		&cmd.SingleMachine,
-		log,
-	)
+	devPodConfig, err = configureProviderOptions(ctx, ProviderOptionsConfig{
+		Provider:       providerWithOptions.Config,
+		Context:        devPodConfig.DefaultContext,
+		UserOptions:    cmd.Options,
+		Reconfigure:    cmd.Reconfigure,
+		SkipRequired:   cmd.Dry,
+		SkipInit:       cmd.Dry,
+		SkipSubOptions: false,
+		SingleMachine:  &cmd.SingleMachine,
+		Log:            log,
+	})
 	if err != nil {
 		return err
 	}
@@ -109,8 +119,6 @@ func (cmd *SetOptionsCmd) Run(ctx context.Context, args []string, log log.Logger
 	}
 
 	// print success message
-	log.WithFields(logrus.Fields{
-		"providerName": providerWithOptions.Config.Name,
-	}).Done("set options for provider")
+	log.Donef("set options for provider: providerName=%s", providerWithOptions.Config.Name)
 	return nil
 }

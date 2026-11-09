@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/skevetter/devpod/pkg/command"
+	"github.com/skevetter/devpod/pkg/config"
 	"github.com/skevetter/devpod/pkg/file"
 	"github.com/skevetter/devpod/pkg/git"
 	"github.com/skevetter/log/scanner"
@@ -52,7 +53,7 @@ func ConfigureHelper(binaryPath, userName string, port int) error {
         %s
 `, helper)
 
-		err = os.WriteFile(gitConfigPath, []byte(content), 0600)
+		err = os.WriteFile(gitConfigPath, []byte(content), 0o600)
 		if err != nil {
 			return fmt.Errorf("write git config: %w", err)
 		}
@@ -82,7 +83,7 @@ func RemoveHelperFromPath(gitConfigPath string) error {
 	}
 
 	if strings.Contains(string(out), "[credential]") {
-		err = os.WriteFile(gitConfigPath, []byte(removeCredentialHelper(string(out))), 0600)
+		err = os.WriteFile(gitConfigPath, []byte(removeCredentialHelper(string(out))), 0o600)
 		if err != nil {
 			return fmt.Errorf("write git config: %w", err)
 		}
@@ -156,7 +157,11 @@ func SetUser(userName string, user *GitUser) error {
 
 		out, err := exec.Command(args[0], args[1:]...).CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("set user.name '%s': %w", strings.Join(args, " "), command.WrapCommandError(out, err))
+			return fmt.Errorf(
+				"set user.name '%s': %w",
+				strings.Join(args, " "),
+				command.WrapCommandError(out, err),
+			)
 		}
 	}
 	if user.Email != "" {
@@ -170,13 +175,17 @@ func SetUser(userName string, user *GitUser) error {
 
 		out, err := exec.Command(args[0], args[1:]...).CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("set user.email '%s': %w", strings.Join(args, " "), command.WrapCommandError(out, err))
+			return fmt.Errorf(
+				"set user.email '%s': %w",
+				strings.Join(args, " "),
+				command.WrapCommandError(out, err),
+			)
 		}
 	}
 	return nil
 }
 
-func GetUser(userName string) (*GitUser, error) {
+func GetUser(userName string, workingDir string) (*GitUser, error) {
 	gitUser := &GitUser{}
 
 	scopeArgs := []string{"config"}
@@ -186,15 +195,25 @@ func GetUser(userName string) (*GitUser, error) {
 			return gitUser, fmt.Errorf("get git global dir for %s: %w", userName, err)
 		}
 		scopeArgs = append(scopeArgs, "--file", p)
-	} else {
+	} else if workingDir == "" {
 		scopeArgs = append(scopeArgs, "--global")
 	}
 
+	// #nosec G204 -- fixed argument
+	nameCmd := exec.Command("git", append(scopeArgs, "user.name")...)
+	// #nosec G204 -- fixed argument
+	emailCmd := exec.Command("git", append(scopeArgs, "user.email")...)
+
+	if workingDir != "" {
+		nameCmd.Dir = workingDir
+		emailCmd.Dir = workingDir
+	}
+
 	// we ignore the error here, because if email is empty we don't care
-	name, _ := exec.Command("git", append(scopeArgs[:], "user.name")...).Output()
+	name, _ := nameCmd.Output()
 	gitUser.Name = strings.TrimSpace(string(name))
 
-	email, _ := exec.Command("git", append(scopeArgs[:], "user.email")...).Output()
+	email, _ := emailCmd.Output()
 	gitUser.Email = strings.TrimSpace(string(email))
 
 	return gitUser, nil
@@ -202,7 +221,7 @@ func GetUser(userName string) (*GitUser, error) {
 
 func GetCredentials(requestObj *GitCredentials) (*GitCredentials, error) {
 	// run in git helper mode if we have a port
-	gitHelperPort := os.Getenv("DEVPOD_GIT_HELPER_PORT")
+	gitHelperPort := os.Getenv(config.EnvGitHelperPort)
 	if gitHelperPort != "" {
 		binaryPath, err := os.Executable()
 		if err != nil {
@@ -238,7 +257,7 @@ type GetHttpPathParameters struct {
 }
 
 // GetHTTPPath checks for gits `credential.useHttpPath` setting for a given host+protocol and returns the path component
-// of `GitCredential` if the setting is true
+// of `GitCredential` if the setting is true.
 func GetHTTPPath(ctx context.Context, params GetHttpPathParameters) (string, error) {
 	// No need to look up the HTTP Path if we already have one
 	if params.CurrentPath != "" {
@@ -249,8 +268,9 @@ func GetHTTPPath(ctx context.Context, params GetHttpPathParameters) (string, err
 	// The actual format for the key is `credential.$PROTOCOL://$HOST.useHttpPath`, i.e. `credential.https://github.com.useHttpPath`
 	// We need to ignore the error as git will always exit with 1 if the key doesn't exist
 	configKey := fmt.Sprintf("credential.%s://%s.useHttpPath", params.Protocol, params.Host)
-	out, _ := git.CommandContext(ctx, git.GetDefaultExtraEnv(false), "config", "--get", configKey).Output()
-	if strings.TrimSpace(string(out)) != "true" {
+	out, _ := git.CommandContext(ctx, git.GetDefaultExtraEnv(false), "config", "--get", configKey).
+		Output()
+	if strings.TrimSpace(string(out)) != config.BoolTrue {
 		return "", nil
 	}
 	// We can assume the GitRepository is always HTTP(S) based as otherwise we wouldn't
@@ -264,7 +284,9 @@ func GetHTTPPath(ctx context.Context, params GetHttpPathParameters) (string, err
 }
 
 func SetupGpgGitKey(gitSignKey string) error {
-	gitConfigCmd := exec.Command("git", []string{"config", "--global", "user.signingKey", gitSignKey}...)
+	gitConfigCmd := exec.Command(
+		"git",
+		[]string{"config", "--global", "user.signingKey", gitSignKey}...)
 
 	out, err := gitConfigCmd.Output()
 	if err != nil {
@@ -314,7 +336,7 @@ func getGlobalGitConfigPath(userName string) (string, error) {
 	return filepath.Join(home, ".gitconfig"), nil
 }
 
-// GetLocalGitConfigPath resolves the local git config for the specified repository path
+// GetLocalGitConfigPath resolves the local git config for the specified repository path.
 func GetLocalGitConfigPath(repoPath string) string {
 	return filepath.Join(repoPath, ".git", "config")
 }

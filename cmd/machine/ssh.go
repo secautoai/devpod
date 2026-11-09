@@ -10,13 +10,12 @@ import (
 	"os/exec"
 
 	"al.essio.dev/pkg/shellescape"
-
-	"github.com/mattn/go-isatty"
 	"github.com/sirupsen/logrus"
 	"github.com/skevetter/devpod/cmd/flags"
 	devagent "github.com/skevetter/devpod/pkg/agent"
 	"github.com/skevetter/devpod/pkg/client"
 	"github.com/skevetter/devpod/pkg/config"
+	"github.com/skevetter/devpod/pkg/pty"
 	devssh "github.com/skevetter/devpod/pkg/ssh"
 	devsshagent "github.com/skevetter/devpod/pkg/ssh/agent"
 	"github.com/skevetter/devpod/pkg/workspace"
@@ -26,7 +25,7 @@ import (
 	"golang.org/x/term"
 )
 
-// SSHCmd holds the configuration
+// SSHCmd holds the configuration.
 type SSHCmd struct {
 	*flags.GlobalFlags
 
@@ -43,6 +42,15 @@ const (
 	defaultTerm      = "xterm-256color"
 	termModeUsage    = "PTY TERM selection mode: auto, strict, fallback"
 	installUsage     = "Install local TERM terminfo on remote before PTY"
+)
+
+var (
+	isTerminalFunc = func(fd uintptr) bool {
+		return term.IsTerminal(int(fd)) // #nosec G115 -- fd is always a valid file descriptor
+	}
+	makeInputRawTerm    = pty.MakeInputRaw
+	makeOutputRawTerm   = pty.MakeOutputRaw
+	restoreTerminalFunc = pty.RestoreTerminal
 )
 
 type SSHSessionOptions struct {
@@ -66,7 +74,7 @@ type RunSSHSessionOptions struct {
 	Stderr          io.Writer
 }
 
-// NewSSHCmd creates a new destroy command
+// NewSSHCmd creates a new ssh command.
 func NewSSHCmd(flags *flags.GlobalFlags) *cobra.Command {
 	cmd := &SSHCmd{
 		GlobalFlags: flags,
@@ -74,28 +82,37 @@ func NewSSHCmd(flags *flags.GlobalFlags) *cobra.Command {
 	sshCmd := &cobra.Command{
 		Use:   "ssh [name]",
 		Short: "SSH into the machine",
-		RunE: func(c *cobra.Command, args []string) error {
-			return cmd.Run(context.Background(), args)
+		RunE: func(cobraCmd *cobra.Command, args []string) error {
+			return cmd.Run(cobraCmd.Context(), args)
 		},
 	}
 
-	sshCmd.Flags().StringVar(&cmd.Command, "command", "", "The command to execute on the remote machine")
-	sshCmd.Flags().BoolVar(&cmd.AgentForwarding, "agent-forwarding", false, "If true, will forward the local ssh keys")
+	sshCmd.Flags().
+		StringVar(&cmd.Command, "command", "", "The command to execute on the remote machine")
+	sshCmd.Flags().
+		BoolVar(&cmd.AgentForwarding, "agent-forwarding", false, "If true, will forward the local ssh keys")
 	sshCmd.Flags().StringVar(&cmd.TermMode, "term-mode", TermModeAuto, termModeUsage)
 	sshCmd.Flags().BoolVar(&cmd.InstallTerminfo, "install-terminfo", false, installUsage)
 	_ = sshCmd.RegisterFlagCompletionFunc(
 		"term-mode",
 		func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-			return []string{TermModeAuto, TermModeStrict, TermModeFallback}, cobra.ShellCompDirectiveNoFileComp
+			return []string{
+				TermModeAuto,
+				TermModeStrict,
+				TermModeFallback,
+			}, cobra.ShellCompDirectiveNoFileComp
 		},
 	)
 	return sshCmd
 }
 
-// Run runs the command logic
+// Run runs the command logic.
 func (cmd *SSHCmd) Run(ctx context.Context, args []string) error {
 	if !isValidTermMode(cmd.TermMode) {
-		return fmt.Errorf("invalid --term-mode %q: expected one of auto, strict, fallback", cmd.TermMode)
+		return fmt.Errorf(
+			"invalid --term-mode %q: expected one of auto, strict, fallback",
+			cmd.TermMode,
+		)
 	}
 
 	devPodConfig, err := config.LoadConfig(cmd.Context, cmd.Provider)
@@ -118,7 +135,10 @@ func (cmd *SSHCmd) Run(ctx context.Context, args []string) error {
 	return StartSSHSession(ctx, StartSSHSessionOptions{
 		Command:         cmd.Command,
 		AgentForwarding: cmd.AgentForwarding,
-		SessionOptions:  SSHSessionOptions{TermMode: cmd.TermMode, InstallTerminfo: cmd.InstallTerminfo},
+		SessionOptions: SSHSessionOptions{
+			TermMode:        cmd.TermMode,
+			InstallTerminfo: cmd.InstallTerminfo,
+		},
 		Exec: func(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
 			command := fmt.Sprintf("'%s' helper ssh-server --stdio", machineClient.AgentPath())
 			if cmd.Debug {
@@ -235,7 +255,11 @@ func setupPTYIfNeeded(
 	return setupInteractivePTY(ctx, sshClient, session, options)
 }
 
-func configureAgentForwarding(sshClient *ssh.Client, session *ssh.Session, shouldForward bool) error {
+func configureAgentForwarding(
+	sshClient *ssh.Client,
+	session *ssh.Session,
+	shouldForward bool,
+) error {
 	authSock := devsshagent.GetSSHAuthSocket()
 	if !shouldForward || authSock == "" {
 		return nil
@@ -260,17 +284,18 @@ func setupInteractivePTY(
 	session *ssh.Session,
 	options RunSSHSessionOptions,
 ) (func(), error) {
+	stdin := os.Stdin
 	stdout := os.Stdout
-	if !isatty.IsTerminal(stdout.Fd()) {
+	fd := int(stdout.Fd()) // #nosec G115 -- fd is always a valid file descriptor
+	if !hasInteractiveTerminal(stdin, stdout) {
 		return noopRestore, nil
 	}
 
-	restoreTerm, err := makeRawTerm(stdout)
+	restoreTerm, err := makeRawTerm(stdin, stdout)
 	if err != nil {
 		return noopRestore, err
 	}
 
-	fd := int(stdout.Fd()) // #nosec G115 -- fd is always a valid file descriptor
 	startWindowResizeForwarder(ctx, session, fd)
 
 	t := resolvePTYTermWithFallback(ctx, sshClient, options.SessionOptions, options.Stderr)
@@ -283,15 +308,24 @@ func setupInteractivePTY(
 	return restoreTerm, nil
 }
 
-func makeRawTerm(stdout *os.File) (func(), error) {
-	fd := int(stdout.Fd()) // #nosec G115 -- fd is always a valid file descriptor
-	state, err := term.MakeRaw(fd)
+func hasInteractiveTerminal(stdin, stdout *os.File) bool {
+	return isTerminalFunc(stdin.Fd()) && isTerminalFunc(stdout.Fd())
+}
+
+func makeRawTerm(stdin, stdout *os.File) (func(), error) {
+	stdinState, err := makeInputRawTerm(stdin.Fd())
 	if err != nil {
+		return noopRestore, err
+	}
+	stdoutState, err := makeOutputRawTerm(stdout.Fd())
+	if err != nil {
+		_ = restoreTerminalFunc(stdin.Fd(), stdinState)
 		return noopRestore, err
 	}
 
 	return func() {
-		_ = term.Restore(int(stdout.Fd()), state)
+		_ = restoreTerminalFunc(stdout.Fd(), stdoutState)
+		_ = restoreTerminalFunc(stdin.Fd(), stdinState)
 	}, nil
 }
 
@@ -308,7 +342,12 @@ func resolvePTYTermWithFallback(
 		return t
 	}
 
-	_, _ = fmt.Fprintf(stderr, "warning: failed to resolve TERM, falling back to %s: %v\n", defaultTerm, err)
+	_, _ = fmt.Fprintf(
+		stderr,
+		"warning: failed to resolve TERM, falling back to %s: %v\n",
+		defaultTerm,
+		err,
+	)
 	return defaultTerm
 }
 
@@ -361,7 +400,11 @@ func startSessionCommand(session *ssh.Session, command string) error {
 	return nil
 }
 
-func resolvePTYTerm(ctx context.Context, sshClient *ssh.Client, sessionOptions SSHSessionOptions) (string, error) {
+func resolvePTYTerm(
+	ctx context.Context,
+	sshClient *ssh.Client,
+	sessionOptions SSHSessionOptions,
+) (string, error) {
 	localTerm := getLocalTerm()
 	mode := getTermMode(sessionOptions)
 
@@ -373,7 +416,10 @@ func resolvePTYTerm(ctx context.Context, sshClient *ssh.Client, sessionOptions S
 	case TermModeAuto:
 		return resolveAutoPTYTerm(ctx, sshClient, localTerm, sessionOptions.InstallTerminfo)
 	default:
-		return "", fmt.Errorf("invalid --term-mode %q: expected one of auto, strict, fallback", mode)
+		return "", fmt.Errorf(
+			"invalid --term-mode %q: expected one of auto, strict, fallback",
+			mode,
+		)
 	}
 }
 
@@ -449,7 +495,11 @@ func remoteTerminfoExists(ctx context.Context, sshClient *ssh.Client, term strin
 // It returns (false, nil) when prerequisites are missing or installation exits
 // non-zero, because callers should continue with TERM fallback in auto mode.
 // It only returns a non-nil error for transport/session failures.
-func installLocalTerminfoOnRemote(ctx context.Context, sshClient *ssh.Client, term string) (bool, error) {
+func installLocalTerminfoOnRemote(
+	ctx context.Context,
+	sshClient *ssh.Client,
+	term string,
+) (bool, error) {
 	// #nosec G204 -- term is validated by the caller
 	infocmpCmd := exec.CommandContext(ctx, "infocmp", "-x", term)
 	output, err := infocmpCmd.Output()

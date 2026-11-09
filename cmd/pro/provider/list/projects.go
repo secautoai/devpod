@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	managementv1 "github.com/loft-sh/api/v4/pkg/apis/management/v1"
+	managementv1 "github.com/skevetter/api/pkg/apis/management/v1"
 	"github.com/skevetter/devpod/cmd/pro/flags"
 	"github.com/skevetter/devpod/pkg/platform/client"
 	"github.com/skevetter/log"
@@ -13,14 +13,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// ProjectsCmd holds the cmd flags
+// ProjectsCmd holds the cmd flags.
 type ProjectsCmd struct {
 	*flags.GlobalFlags
 
 	log log.Logger
 }
 
-// NewProjectsCmd creates a new command
+// NewProjectsCmd creates a new command.
 func NewProjectsCmd(globalFlags *flags.GlobalFlags) *cobra.Command {
 	cmd := &ProjectsCmd{
 		GlobalFlags: globalFlags,
@@ -65,11 +65,16 @@ func Projects(ctx context.Context, client client.Client) (*managementv1.ProjectL
 		return nil, err
 	}
 
-	projectList, err := managementClient.Loft().ManagementV1().Projects().List(ctx, metav1.ListOptions{})
+	projectList, err := managementClient.Loft().
+		ManagementV1().
+		Projects().
+		List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return projectList, fmt.Errorf("list projects: %w", err)
 	} else if len(projectList.Items) == 0 {
-		return projectList, fmt.Errorf("you don't have access to any projects, please make sure you have at least access to 1 project")
+		return projectList, fmt.Errorf(
+			"you don't have access to any projects, please make sure you have at least access to 1 project",
+		)
 	}
 
 	return projectList, nil

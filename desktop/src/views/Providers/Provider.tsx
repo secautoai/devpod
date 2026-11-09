@@ -12,12 +12,12 @@ export function Provider() {
   const providerID = useMemo(() => Routes.getProviderId(params), [params])
   const [provider] = useProvider(providerID)
   const containerRef = useRef<HTMLDivElement>(null)
-  if (!exists(provider)) {
-    return <Spinner />
-  }
-
   if (!exists(providerID)) {
     return null
+  }
+
+  if (!exists(provider)) {
+    return <Spinner />
   }
 
   return (
@@ -25,6 +25,7 @@ export function Provider() {
       <ConfigureProviderOptionsForm
         containerRef={containerRef}
         providerID={providerID}
+        name={provider.config?.name ?? providerID}
         isDefault={!!provider.default}
         addProvider={false}
         reuseMachine={!!provider.state?.singleMachine}

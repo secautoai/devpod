@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	ecr "github.com/awslabs/amazon-ecr-credential-helper/ecr-login"
-	"github.com/chrismellard/docker-credential-acr-env/pkg/credhelper"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/go-containerregistry/pkg/authn"
 	kubernetesauth "github.com/google/go-containerregistry/pkg/authn/kubernetes"
@@ -17,8 +16,12 @@ import (
 )
 
 var (
-	amazonKeychain authn.Keychain = authn.NewKeychainFromHelper(ecr.NewECRHelper(ecr.WithLogger(io.Discard)))
-	azureKeychain  authn.Keychain = authn.NewKeychainFromHelper(credhelper.NewACRCredentialsHelper())
+	amazonKeychain authn.Keychain = authn.NewKeychainFromHelper(
+		ecr.NewECRHelper(ecr.WithLogger(io.Discard)),
+	)
+	azureKeychain authn.Keychain = authn.NewKeychainFromHelper(
+		newACRCredentialsHelper(),
+	)
 )
 
 const tokenFileLocation = "/var/run/secrets/kubernetes.io/serviceaccount/token"
@@ -100,12 +103,17 @@ func getPodMetadata(token []byte) (podMetadata, error) {
 		return nil, nil
 	})
 	if err != nil {
-		return podMetadata{}, fmt.Errorf("failed to parse kubernetes service account token: %w", err)
+		return podMetadata{}, fmt.Errorf(
+			"failed to parse kubernetes service account token: %w",
+			err,
+		)
 	}
 
 	kubeClaim := claims.Kubernetes
 	if kubeClaim.Namespace == "" || kubeClaim.Svcacct.Name == "" {
-		return podMetadata{}, fmt.Errorf("failed to retrieve pod metadata from kubernetes service account token")
+		return podMetadata{}, fmt.Errorf(
+			"failed to retrieve pod metadata from kubernetes service account token",
+		)
 	}
 
 	return podMetadata{

@@ -3,7 +3,7 @@ package clientimplementation
 import (
 	"context"
 
-	managementv1 "github.com/loft-sh/api/v4/pkg/apis/management/v1"
+	managementv1 "github.com/skevetter/api/pkg/apis/management/v1"
 	"github.com/skevetter/devpod/pkg/client"
 	"github.com/skevetter/devpod/pkg/config"
 	daemon "github.com/skevetter/devpod/pkg/daemon/platform"
@@ -13,13 +13,14 @@ import (
 )
 
 type StartServicesDaemonOptions struct {
-	DevPodConfig *config.Config
-	Client       client.DaemonClient
-	SSHClient    *ssh.Client
-	User         string
-	Log          log.Logger
-	ForwardPorts bool
-	ExtraPorts   []string
+	DevPodConfig     *config.Config
+	Client           client.DaemonClient
+	SSHClient        *ssh.Client
+	User             string
+	Log              log.Logger
+	ForwardPorts     bool
+	ExtraPorts       []string
+	GitSSHSigningKey string
 }
 
 type credentialConfig struct {
@@ -28,7 +29,7 @@ type credentialConfig struct {
 	gitSSHSignature bool
 }
 
-// StartServicesDaemon starts the services daemon for credential forwarding and port forwarding
+// StartServicesDaemon starts the services daemon for credential forwarding and port forwarding.
 func StartServicesDaemon(ctx context.Context, opts StartServicesDaemonOptions) error {
 	if opts.User == "" {
 		return nil
@@ -54,20 +55,33 @@ func StartServicesDaemon(ctx context.Context, opts StartServicesDaemonOptions) e
 			ConfigureDockerCredentials:     credConfig.docker,
 			ConfigureGitCredentials:        credConfig.git,
 			ConfigureGitSSHSignatureHelper: credConfig.gitSSHSignature,
+			GitSSHSigningKey:               opts.GitSSHSigningKey,
 			Log:                            opts.Log,
 		},
 	)
 }
 
-func getWorkspace(ctx context.Context, client client.DaemonClient) (*managementv1.DevPodWorkspaceInstance, error) {
+func getWorkspace(
+	ctx context.Context,
+	client client.DaemonClient,
+) (*managementv1.DevPodWorkspaceInstance, error) {
 	return daemon.NewLocalClient(client.Provider()).GetWorkspace(ctx, client.WorkspaceConfig().UID)
 }
 
-func getCredentialConfig(devPodConfig *config.Config, workspace *managementv1.DevPodWorkspaceInstance) credentialConfig {
+func getCredentialConfig(
+	devPodConfig *config.Config,
+	workspace *managementv1.DevPodWorkspaceInstance,
+) credentialConfig {
 	cfg := credentialConfig{
-		docker:          devPodConfig.ContextOption(config.ContextOptionSSHInjectDockerCredentials) == "true",
-		git:             devPodConfig.ContextOption(config.ContextOptionSSHInjectGitCredentials) == "true",
-		gitSSHSignature: devPodConfig.ContextOption(config.ContextOptionGitSSHSignatureForwarding) == "true",
+		docker: devPodConfig.ContextOption(
+			config.ContextOptionSSHInjectDockerCredentials,
+		) == config.BoolTrue,
+		git: devPodConfig.ContextOption(
+			config.ContextOptionSSHInjectGitCredentials,
+		) == config.BoolTrue,
+		gitSSHSignature: devPodConfig.ContextOption(
+			config.ContextOptionGitSSHSignatureForwarding,
+		) == config.BoolTrue,
 	}
 
 	if workspace == nil || workspace.Status.Instance == nil {

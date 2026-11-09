@@ -5,7 +5,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewMachineCmd returns a new root command
+// NewMachineCmd returns a new root command.
 func NewMachineCmd(flags *flags.GlobalFlags) *cobra.Command {
 	machineCmd := &cobra.Command{
 		Use:   "machine",
@@ -20,5 +20,6 @@ func NewMachineCmd(flags *flags.GlobalFlags) *cobra.Command {
 	machineCmd.AddCommand(NewDeleteCmd(flags))
 	machineCmd.AddCommand(NewCreateCmd(flags))
 	machineCmd.AddCommand(NewInspectCmd(flags))
+	machineCmd.AddCommand(NewDescribeCmd(flags))
 	return machineCmd
 }
