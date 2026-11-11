@@ -1,4 +1,4 @@
-import { exists, Result, Return } from "@/lib"
+import { exists, getErrorFromChildProcess, Result, Return } from "@/lib"
 import {
   TWorkspace,
   TWorkspaceID,
@@ -62,6 +62,10 @@ export class WorkspaceCommands {
     ]).run()
     if (result.err) {
       return result
+    }
+
+    if (!isOk(result.val)) {
+      return getErrorFromChildProcess(result.val)
     }
 
     const rawWorkspaces = JSON.parse(result.val.stdout) as TRawWorkspaces

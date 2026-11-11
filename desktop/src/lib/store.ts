@@ -2,6 +2,7 @@ import { LazyStore } from "@tauri-apps/plugin-store"
 import { TUnsubscribeFn } from "@/types"
 import { EventManager } from "./eventManager"
 import { exists } from "./helpers"
+import { IS_TAURI } from "./platform"
 
 type TBaseStore = Record<string | number | symbol, unknown>
 
@@ -83,14 +84,24 @@ export class LocalStorageBackend<T extends TBaseStore> implements TStorageBacken
 }
 
 export class FileStorageBackend<T extends TBaseStore> implements TStorageBackend<T> {
-  private readonly store: LazyStore
+  private readonly store: LazyStore | null
+  // Fallback for web mode (no Tauri file system access)
+  private readonly lsBackend: LocalStorageBackend<T>
 
   constructor(name: string) {
-    const fileName = `.${name}.json`
-    this.store = new LazyStore(fileName)
+    this.lsBackend = new LocalStorageBackend<T>(name)
+    if (IS_TAURI) {
+      const fileName = `.${name}.json`
+      this.store = new LazyStore(fileName)
+    } else {
+      this.store = null
+    }
   }
 
   public async set<TKey extends keyof T>(key: TKey, value: T[TKey]): Promise<void> {
+    if (!this.store) {
+      return this.lsBackend.set(key, value)
+    }
     try {
       await this.store.set(key.toString(), value)
       await this.store.save()
@@ -100,6 +111,9 @@ export class FileStorageBackend<T extends TBaseStore> implements TStorageBackend
   }
 
   public async get<TKey extends keyof T>(key: TKey): Promise<T[TKey] | null> {
+    if (!this.store) {
+      return this.lsBackend.get(key)
+    }
     try {
       const maybeValue = await this.store.get<T[TKey] | null>(key.toString())
       if (!exists(maybeValue)) {
@@ -113,11 +127,17 @@ export class FileStorageBackend<T extends TBaseStore> implements TStorageBackend
   }
 
   public async remove<TKey extends keyof T>(key: TKey): Promise<void> {
+    if (!this.store) {
+      return this.lsBackend.remove(key)
+    }
     await this.store.delete(key.toString())
     await this.store.save()
   }
 
   public async clear(): Promise<void> {
+    if (!this.store) {
+      return this.lsBackend.clear()
+    }
     await this.store.clear()
     await this.store.save()
   }

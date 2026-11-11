@@ -19,7 +19,7 @@ import { DevpodWordmark } from "@/icons"
 import { useBorderColor } from "@/Theme"
 import { LoftOSSBadge } from "../LoftOSSBadge"
 
-type TSidebarProps = Readonly<{ children?: readonly ReactElement[] }> & BoxProps
+type TSidebarProps = Readonly<{ children?: ReactNode }> & BoxProps
 export function Sidebar({ children, ...boxProps }: TSidebarProps) {
   const { colorMode } = useColorMode()
   const systemTheme = useSystemTheme()

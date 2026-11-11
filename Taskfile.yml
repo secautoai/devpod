@@ -119,6 +119,15 @@ tasks:
       - task: desktop:check
       - cmd: yarn build
 
+  web:build:
+    desc: build devpod web UI (outputs to desktop/dist, then embeds into Go binary)
+    cmds:
+      - cmd: yarn --cwd desktop install --frozen-lockfile
+      - cmd: yarn --cwd desktop build:web
+      - cmd: go build -tags embedfrontend -o dist/devpod-web ./
+    env:
+      DEVPOD_VERSION: '{{.DEVPOD_VERSION | default "dev"}}'
+
   desktop:check:
     desc: check desktop application
     dir: desktop

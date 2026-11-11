@@ -5,7 +5,12 @@ import { TProviderID, TSupportedIDE, TWorkspaceID } from "./types"
 
 export const Routes = {
   ROOT: "/",
+  LOGIN: "/login",
   SETTINGS: "/settings",
+  ADMIN: "/admin",
+  ADMIN_USERS: "/admin/users",
+  ADMIN_LOGS: "/admin/logs",
+  ADMIN_BRANDING: "/admin/branding",
   WORKSPACES: "/workspaces",
   ACTIONS: "/actions",
   get ACTION(): string {

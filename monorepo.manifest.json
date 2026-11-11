@@ -1,0 +1,118 @@
+{
+  "schema": 1,
+  "localMonorepo": {
+    "reportedCommit": "71f0995c",
+    "remote": null,
+    "layoutAssumption": "The DevPod CLI stays at the repository root. Each satellite occupies a directory named after its GitHub repository. devpod-demo lives at examples/devpod-demo. A local checkout at 71f0995c was not readable from this environment; these prefixes are the reconciliation contract."
+  },
+  "cli": {
+    "path": ".",
+    "source": "https://github.com/secautoai/devpod",
+    "branch": "claude/add-web-ui-W5nzb",
+    "commit": "464810e526a8c3940630ed3348bc5f9761ee863e",
+    "commitsAheadOfMain": 17,
+    "module": "github.com/skevetter/devpod",
+    "license": "MPL-2.0",
+    "upstream": "https://github.com/loft-sh/devpod",
+    "parent": "https://github.com/skevetter/devpod"
+  },
+  "satellites": [
+    {
+      "name": "devpod-backend",
+      "url": "https://github.com/secautoai/devpod-backend",
+      "prefix": null,
+      "import": "skip-duplicate-cli",
+      "license": "MPL-2.0",
+      "licenseStatus": "reported-by-owner-not-verified",
+      "status": "not-imported",
+      "commitCount": null,
+      "reason": "DevPod CLI fork. This repository is already that CLI. A second tree is not imported. hack/import-satellites.sh lists commits that exist only on devpod-backend so they can be applied on the root tree."
+    },
+    {
+      "name": "devpod-api",
+      "url": "https://github.com/secautoai/devpod-api",
+      "prefix": "devpod-api",
+      "import": "subtree",
+      "branch": null,
+      "licenseStatus": "unobserved-do-not-assign",
+      "cargo": true,
+      "npm": false,
+      "status": "not-imported",
+      "commitCount": null,
+      "reason": "Private repository. The GitHub App credential for this run can read only secautoai/devpod."
+    },
+    {
+      "name": "devpod-enterprise",
+      "url": "https://github.com/secautoai/devpod-enterprise",
+      "prefix": "devpod-enterprise",
+      "import": "subtree",
+      "branch": null,
+      "licenseStatus": "unobserved-do-not-assign",
+      "cargo": true,
+      "npm": false,
+      "status": "not-imported",
+      "commitCount": null,
+      "reason": "Private repository. The GitHub App credential for this run can read only secautoai/devpod."
+    },
+    {
+      "name": "devpod-ssh-gateway",
+      "url": "https://github.com/secautoai/devpod-ssh-gateway",
+      "prefix": "devpod-ssh-gateway",
+      "import": "subtree",
+      "branch": null,
+      "licenseStatus": "unobserved-do-not-assign",
+      "cargo": true,
+      "npm": false,
+      "status": "not-imported",
+      "commitCount": null,
+      "reason": "Private repository with a non-standard default branch. The import resolves HEAD with git ls-remote --symref and does not assume main."
+    },
+    {
+      "name": "devpod-pro-ui",
+      "url": "https://github.com/secautoai/devpod-pro-ui",
+      "prefix": "devpod-pro-ui",
+      "import": "subtree",
+      "branch": null,
+      "licenseStatus": "unobserved-do-not-assign",
+      "cargo": false,
+      "npm": true,
+      "status": "not-imported",
+      "commitCount": null,
+      "reason": "Private repository. TODO-cross-repo-dependencies.md was not readable, so those dependencies are unresolved."
+    },
+    {
+      "name": "devpod-e2e-tests",
+      "url": "https://github.com/secautoai/devpod-e2e-tests",
+      "prefix": "devpod-e2e-tests",
+      "import": "subtree",
+      "branch": null,
+      "licenseStatus": "unobserved-do-not-assign",
+      "cargo": false,
+      "npm": true,
+      "status": "not-imported",
+      "commitCount": null,
+      "reason": "Private Playwright repository. Distinct from the Ginkgo suite in e2e/."
+    },
+    {
+      "name": "devpod-demo",
+      "url": "https://github.com/secautoai/devpod-demo",
+      "prefix": "examples/devpod-demo",
+      "import": "subtree",
+      "branch": "main",
+      "commit": "ffc90d6ffd332c370f1716816310b2c60fc01520",
+      "licenseStatus": "unlicensed-no-license-chosen",
+      "cargo": false,
+      "npm": false,
+      "status": "imported",
+      "commitCount": 1,
+      "reason": "Public devcontainer test repo. History preserved via git subtree (no squash). No license file was present and none was added.",
+      "extraRefsNotImported": [
+        {
+          "branch": "claude/compiler-principles-rust-tutorial-t5dmsc",
+          "commit": "0088b2b0201efea402b7e427b7df33a855d37d1f",
+          "reason": "Unrelated compiler tutorial on a side branch. It is not the devcontainer test repo, so it was left in the satellite."
+        }
+      ]
+    }
+  ]
+}
